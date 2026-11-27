@@ -757,3 +757,147 @@ Prioritize future investigation/integration in this order:
 5. **Do not add another bot runtime, Android UI, Web Dashboard, external AI/OCR, Telegram, or iPhone Shortcut.**
 
 No third-party bot source code has been imported by this audit update. These are research findings and implementation candidates only.
+
+
+---
+
+## 13th research pass — upgrade automation, magic items, boost modelling, and newer farming bots
+
+Research date: 2026-11-28. This pass inspected repository READMEs, source files, test suites, repository trees, and license files where available. Findings are references, not imported code.
+
+### 1. RaidR — strongest new reference for safe live upgrade execution
+
+Repository: https://github.com/staticmooniq/RaidR (MIT)
+
+Inspected:
+- `app/core/upgrade_menu.py`
+- `app/core/upgrade_policy.py`
+- `app/core/upgrader.py`
+- `app/core/village_state.py`
+- `app/services/loot_ocr.py`
+- `tests/test_upgrade_reads.py`
+- `tests/test_persistence.py`
+- `CHANGELOG.md`
+
+Useful design patterns:
+- Separates the builder-menu scan (vision only) from the upgrade policy and live execution.
+- Parses rows into structured values: label, section, resource type, cost, affordability, and click point.
+- Treats unreadable resources/builders/costs as unknown; an unknown free-builder count or unparsed cost prevents a purchase.
+- Maxer and Rusher are policy variants over one engine. The policy supports reserved builders, a gold buffer for the next matchmaking fee, selectable cheapest/priciest ordering, and dark-elixir-first selection.
+- The execution pass reopens the menu and re-finds the chosen row by fuzzy label plus exact cost. It requires two consecutive frames to agree on the row position before clicking, guarding against menu scrolling animation.
+- Red unaffordable-cost regions are a hard veto around the confirm action; the execution chain is bounded rather than blindly clicking repeated buttons.
+- Verifies success by rereading the builder chip and confirming the free-builder count dropped.
+- Village HUD reads use multi-frame agreement; fields are optional/unknown rather than fabricated as zero.
+- Changelog documents atomic temp-file + rename persistence and download integrity checks for its self-updater.
+- Tests cover resource disagreement, red-cost veto, wrong-row rejection, persistence round trips and corrupt-file recovery.
+
+Limitations / adaptation:
+- Its geometry is calibrated for specific 16:9 / 16:10 layouts and should not be copied as fixed coordinates.
+- Its current implementation includes a user-facing dry mode. The COC_Bot design will NOT adopt a Dry Run mode, per the user's decision. The underlying safety checks (unknown-state veto, re-identification, bounded clicks, and post-action verification) remain desirable in live mode.
+- Its strategy and UI are not a replacement for COCFARM's runtime.
+
+Recommendation: highest-priority reference for implementing COCFARM's future live upgrade executor and tests. Recreate the concepts inside COCFARM's device, vision, screen-state, config, and scheduler abstractions; do not transplant the full application.
+
+### 2. watari09/clash-planner — strongest new reference for boost and magic-item mathematics
+
+Repository: https://github.com/watari09/clash-planner
+
+License check: no `LICENSE` file was found in the inspected default-branch tree. Treat as reference-only; do not copy its source or data unless licensing is clarified.
+
+Inspected:
+- `src/boosts.js`
+- `src/magic.js`
+- `src/planner.js`
+- `src/suggest.js`
+- `test/boosts.test.js`
+- `test/magic.test.js`
+- `test/planner.test.js`
+- `tools/update_data.py`
+- `data/game.json`
+- `README.md`
+
+Useful design patterns:
+- Pure functions for boost calculations, separated from UI and side effects.
+- Models boost types by affected work groups (Home builders, Laboratory, pets, Builder Base builders, Star Laboratory), with level-aware helper effects and level-aware Clock Tower duration.
+- Models scheduled boost events as time intervals, sorts them chronologically, accounts for overlap/stacking rules, and calculates the revised completion time and saved time.
+- Distinguishes single-target helpers from village-wide potions and handles recurring helper workdays.
+- Magic-book recommendations rank eligible upgrades by remaining time, respect Home Village and Town Hall/Laboratory eligibility, and include running upgrades using their remaining duration.
+- Upgrade planning uses separate queues for builders, Laboratory, Builder Base, Star Laboratory, and pets, plus resource-availability timelines.
+- Includes substantial unit tests for boost arithmetic, helper cooldowns, affected work groups, running upgrades, and magic-book ranking.
+- The data updater reads versioned official game-asset tables using the game fingerprint and generates normalized item/level records. The sample data identifies a game version and fingerprint.
+
+Limitations / adaptation:
+- This is primarily an export-driven browser planner, not a screen automation bot.
+- Its README also describes optional account sync via a Cloudflare Worker; this is outside the local-only COC_Bot scope.
+- No license means no source/data reuse at this stage.
+- The code's boost and magic-item rules must be independently verified against current game behavior before implementation; its model is a research lead, not an authority.
+
+Recommendation: use the domain model as a blueprint for a separate, optional Boost & Timer Engine. Keep this feature disabled until the user explicitly enables it for a relevant period/event (e.g. Hammer Jam). Keep instant magic-item use in the main automation policy as a distinct feature, with per-item eligibility and inventory-cap awareness.
+
+### 3. Coc-DeepFarm — broad CV/AI architecture, but not a runtime candidate
+
+Repository: https://github.com/Dzakiudin/coc-deepfarm (MIT)
+
+Inspected:
+- `core/bot.py`
+- `perception/vision.py`
+- `ai/brain.py`, `ai/policy_net.py`, `ai/video_learner.py` (repository tree and README architecture)
+- `tests/test_project_setup.py`
+- `CHANGELOG.md`
+
+Potentially useful:
+- Clean separation between orchestration, perception, AI, device control, services, and UI.
+- Explicit scan-failure exceptions rather than treating every failed scan as a zero-loot result.
+- Queue/thread-based GUI communication, replay logging, and local model execution.
+- Video-based learning from recorded attacks is an interesting research direction if manual strategy capture is later requested.
+
+Reasons not to migrate:
+- Heavy PyTorch/YOLO/EasyOCR dependency stack and bundled model weights add significant install/runtime weight.
+- README makes strong claims about reinforcement learning, latency and farming performance; those claims are not independently validated by the inspected code/tests.
+- Existing COCFARM already has a more suitable integrated template matcher, glyph OCR, screen-state machine, and device abstraction.
+- Dashboard, notification, and AI-learning features are not current project requirements.
+
+Recommendation: do not add its neural stack. Consider only isolated ideas such as replay metadata or a future manual attack-recording workflow, after a concrete need and test plan exist.
+
+### 4. coc-auto — useful state/recovery reference, but licensing and scope concerns
+
+Repository searched: https://github.com/samperez10/coc-auto
+
+License check: no `LICENSE` file found in the inspected default-branch tree. Reference-only.
+
+Inspected `README.md` and `bot.py`. The project describes:
+- ADB/LDPlayer automation for both villages.
+- Multi-anchor screen recognition, digit-template OCR, calibration, and unknown-screen recovery.
+- Storage-capacity reads from in-game tooltips, reward popup handling, and recovery limits.
+- Safety rule that unknown screens are not tapped and recovery stops after a configured number of unsuccessful attempts.
+
+Cautions:
+- README's installation instructions point to a different repository owner (`peenjeee/coc-auto`) than the repository inspected; verify source provenance before relying on those instructions.
+- It advertises a web dashboard, which is explicitly out of scope for COC_Bot.
+- Its default dry-run behavior is not adopted; the user has explicitly rejected a Dry Run mode.
+- Do not copy source without a clear license.
+
+Recommendation: use only as a reference for unknown-screen handling, recovery budgets, and local calibration ideas.
+
+### 5. Additional lower-priority repositories
+
+- `Mohiuddin-Fida/Clash-of-Clans-Bot` (MIT): basic PyAutoGUI/OpenCV image matching and broad multi-scale search. The inspected implementation uses full-screen desktop screenshots and direct PyAutoGUI clicks, has minimal state modelling, and the repository includes generated executable/build/bytecode artifacts. No clear advantage over COCFARM.
+- `ko9ma7/clash-of-clans-farm-bot` (MIT): advertises multi-account farming and targeted building/Lab upgrade automation, but depends on narrow LDPlayer resolutions, image templates, hard-coded coordinates and manually maintained priority lists. Useful only as a small reference for configuration ideas; not a migration candidate.
+- `Kushal-Raptor-X/coc-equipment-planner`: static hero-equipment/ore planner with budget and affordability queue ideas. No `LICENSE` file found; also includes deployment, analytics and ad setup that are not needed for the local bot. Reference-only.
+- `jaredfiacco2/ClashOfClans_API`: historical official API ETL pipeline built around GCP, Cloud Scheduler, BigQuery and dashboards. It does not help with private village state or screen automation and conflicts with the local-only scope.
+
+### Updated project decisions from the user
+
+These decisions supersede any conflicting earlier proposals in this document:
+- **No Dry Run mode.** Do not add a simulation-only user mode or make it a required step before live automation.
+- **Auto-use instant upgrade items.** The bot should automatically use eligible instant-upgrade items according to sensible item-specific rules, especially when a limited inventory slot is full or likely to block another reward. Do not assume every magic item shares the same inventory cap or eligibility.
+- **Boost & Timer Engine remains optional.** It should be user-enabled for a relevant period/event (for example Hammer Jam), not always active by default.
+- Retain internal live-action safeguards even without Dry Run: verify the screen and target, reject unknown/unreadable values, confirm resource and item eligibility, avoid unintended gem spending, bound the click sequence, and verify the expected state change afterward.
+
+### Priority after this research pass
+
+1. Implement safe live upgrade execution within COCFARM, using RaidR's scan → policy → re-identify → execute → verify pattern, adapted to COCFARM's own architecture.
+2. Design the instant-item manager with explicit item categories, actual per-item storage limits, eligibility rules, and automatic-use policy. Verify game data before hardcoding limits.
+3. Build the optional boost/timer domain model using independently validated rules and unit tests; enable it only when the user turns it on.
+4. Continue using COCFARM's current vision/OCR and improve confidence/failure reporting rather than adding another vision stack.
+5. No source code from the repositories in this pass has been imported. This update records research and design decisions only.
