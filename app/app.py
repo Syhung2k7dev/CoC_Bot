@@ -62,7 +62,7 @@ def get_cache():
 def _valid_number(value, minimum=None):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    if not math.isfinite(value):
+    if isinstance(value, float) and not math.isfinite(value):
         return False
     return minimum is None or value >= minimum
 
@@ -286,8 +286,11 @@ def handle_status(id):
         if not isinstance(data, dict):
             return jsonify({"status": "error", "message": "Expected a JSON object"}), 400
         status = data.get("status", "")
-        if not isinstance(status, (str, int, float)) or (
-            isinstance(status, str) and len(status) > 64
+        if (
+            not isinstance(status, (str, int, float))
+            or isinstance(status, bool)
+            or (isinstance(status, str) and len(status) > 64)
+            or (isinstance(status, float) and not math.isfinite(status))
         ):
             return jsonify({"status": "error", "message": "Invalid status"}), 400
         with STATE_LOCK:
