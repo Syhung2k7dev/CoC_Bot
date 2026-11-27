@@ -512,7 +512,7 @@ class Upgrader:
                 town_hall_loc, hero_locs, seasonal_defense_locs = chunk_list(locs, [1, len(hero_templates), 1])
                 invalid_locs = town_hall_loc[0] + seasonal_defense_locs[0]
                 town_hall_loc = town_hall_loc[0][0]
-                if heros_excluded:
+                if heroes_excluded:
                     for locs in hero_locs: invalid_locs += locs
                 invalid_y_locs = np.array(invalid_locs)[:, 1] / WINDOW_DIMS[1] + menu_top
 
