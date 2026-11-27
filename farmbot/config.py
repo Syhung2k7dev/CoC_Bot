@@ -957,6 +957,8 @@ REMOVED_SETTINGS = {"redline.reveal_tap",  # never used: inside a base, grass by
                     # Every emulator is set to farmbot.standard: the display, cores and memory aren't choices.
                     "device.set_display", "device.display_width", "device.display_height", "device.display_dpi",
                     "device.set_resources", "device.cpus", "device.memory",
+                    # This customized fork must never consume upstream self-update metadata.
+                    "bot.update_repo", "bot.check_updates",
                     "bot.quick_train", "bot.army_recipe", "clan.request_text", "search.dead_base",
                     "search.dead_base_collectors", "attack.use_cc",
                     "search.min_total", "search.dark_weight",

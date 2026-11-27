@@ -26,3 +26,16 @@ def test_custom_build_does_not_auto_update_from_upstream():
     config = Config()
     assert config.bot.update_repo == ""
     assert config.bot.check_updates is False
+
+
+
+def test_existing_upstream_update_settings_are_ignored(tmp_path):
+    source = tmp_path / "old-farmbot.toml"
+    source.write_text(
+        '[bot]\nupdate_repo = "BilinP/COCFARM"\ncheck_updates = true\n',
+        encoding="utf-8",
+    )
+
+    config = load_config(source)
+    assert config.bot.update_repo == ""
+    assert config.bot.check_updates is False

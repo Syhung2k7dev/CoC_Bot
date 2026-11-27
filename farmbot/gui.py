@@ -6374,19 +6374,15 @@ class FarmbotWindow(FluentWindow):
                       "Windows setting.", THEMES, width=120)
 
         updates = tab.add(SettingCardGroup("Updates"))
-        self.update_button = PushButton(FIF.SYNC, "Check now")
-        self.update_button.clicked.connect(self._update_clicked)
+        self.update_button = PushButton(FIF.SYNC, "Disabled")
+        self.update_button.setEnabled(False)
         self.update_progress = ProgressBar()
         self.update_progress.setFixedWidth(160)
         self.update_progress.hide()
-        self.update_card = self._card(updates, None, FIF.UPDATE, f"COCFARM {__version__}",
-                                      "Updates come from COCFARM's GitHub releases. Your settings and history are kept.",
-                                      self.update_progress, self.update_button)
-        news = PushButton(FIF.MEGAPHONE, "What's new")
-        news.clicked.connect(lambda: self._whats_new(force=True))
-        self.update_card.hBoxLayout.insertWidget(self.update_card.hBoxLayout.indexOf(self.update_button), news)
-        self.switch(updates, "bot.check_updates", FIF.ROBOT, "Look for updates by itself",
-                    "Checks GitHub when the window opens, and every hour while it's open.")
+        self.update_card = self._card(
+            updates, None, FIF.UPDATE, f"COCFARM {__version__}",
+            "Automatic updates are disabled in this customized build. Reviewed changes are managed in this repository.",
+            self.update_progress, self.update_button)
         tab = page.tab("alerts", "Alerts", "Messages on your phone through a Discord channel, so you know what the "
                        "bot did while you were away. Optional.")
         notify = tab.add(SettingCardGroup("Discord"))
