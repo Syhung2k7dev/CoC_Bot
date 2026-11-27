@@ -283,6 +283,8 @@
                     last_checked_string = `Checking now`;
                 } else if (run_status == "error") {
                     last_checked_string = ``;
+                } else if (run_status == "stopped") {
+                    last_checked_string = `Stopped`;
                 }
                 document.getElementById('run_status').innerText = last_checked_string;
             }
@@ -292,7 +294,12 @@
                 const total_time_left = end_time - current_time;
                 const time_left = Math.max(0, total_time_left - (now - start) / 1000);
 
-                if (run_status == "error") {
+                if (run_status == "stopped") {
+                    document.getElementById('countdown_title').innerText = `Stopped`;
+                    document.getElementById('countdown_time').innerText = ``;
+                    document.getElementById('left_padding').innerText = ``;
+                    document.getElementById('right_padding').innerText = ``;
+                } else if (run_status == "error") {
                     document.getElementById('countdown_title').innerText = `Error!`;
                     document.getElementById('countdown_time').innerText = ``;
                     document.getElementById('left_padding').innerText = ``;

@@ -10,14 +10,39 @@ def gui_disable_sleep():
 
 def launch_proc(args):
     from log import enable_logging
-    from utils import parse_args, init_instance
+    from utils import parse_args, init_instance, update_status
     from coc_bot import CoC_Bot
     
     parse_args(args.debug, args.id, args.gui, args.gui_port)
     init_instance(args.id)
     enable_logging(args.id)
     bot = CoC_Bot()
-    bot.run()
+    try:
+        bot.run()
+    finally:
+        update_status("stopped")
+
+
+def mark_instance_stopped(instance_id, gui_port=None):
+    """Mark a forcibly stopped child process in the active status endpoint."""
+    if WEB_APP_URL:
+        base_url = WEB_APP_URL
+    elif gui_port is not None:
+        base_url = f"http://127.0.0.1:{gui_port}"
+    else:
+        return
+
+    import requests
+
+    try:
+        requests.post(
+            f"{base_url}/instances/{instance_id}/status",
+            json={"status": "stopped"},
+            timeout=(1, 2),
+        )
+    except Exception:
+        # The child may already be gone; stopping it must not break GUI shutdown.
+        pass
 
 def cmd_launch(args):
     if DISABLE_DEVICE_SLEEP: utils.disable_sleep()
@@ -57,14 +82,16 @@ def gui_launch(args):
                 if p and p.is_alive():
                     p.terminate()
                     p.join()
+                    mark_instance_stopped(id, args.gui_port)
     except (EOFError, KeyboardInterrupt, SystemExit):
         get_gui().stop()
         pipe.close()
         if sleep_proc is not None: sleep_proc.terminate()
-        for p in procs.values():
+        for id, p in procs.items():
             if p and p.is_alive():
                 p.terminate()
                 p.join()
+                mark_instance_stopped(id, args.gui_port)
 
 def launch():
     import utils
