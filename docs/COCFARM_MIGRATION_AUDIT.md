@@ -323,3 +323,61 @@ COCFARM's upgrade flow is more integrated with the live Build list and current v
 7. Builder Base upgrade behavior with a missing/ambiguous builder count or a busy Star Laboratory.
 
 No code changes to the upgrade engine are justified from this comparison yet. The main missing CoC_Bot convenience is a global random-vs-priority switch; COCFARM's ordered category and allow-list system should remain intact.
+
+
+## Sixth-pass deep dive: scheduler, recovery, OCR dependencies and unattended operation
+
+### COCFARM scheduler
+
+COCFARM's schedule is richer than CoC_Bot's periodic check loop:
+- Selects local active hours (0-23), with optional randomized start/stop offsets at the edges of active-hour windows.
+- Chooses a daily attack limit randomly within a configured minimum/maximum range.
+- Supports random breaks after a range of attack counts and random break durations.
+- Supports a day off at a configured frequency and optional daily summaries.
+- Supports "Close between upgrades": once relevant builders/labs are busy, it can close the game and schedule a one-off Windows Task Scheduler job to reopen COCFARM after the earliest upgrade finishes.
+- Supports "Pause when idle" without closing the COCFARM process; it stops attacks and waits for upgrade completion.
+- In Auto mode it can move between Home Village and Builder Base based on selected storage fullness.
+
+CoC_Bot's template config exposes a simple CHECK_INTERVAL and task loop, but no equivalent rich active-hour/day-off/random daily attack schedule was found in the inspected source. COCFARM is a clear advantage here.
+
+### Recovery and failure containment
+
+COCFARM's main loop distinguishes known non-recoverable states from recoverable round failures:
+- Game refresh/update events return to searching rather than being treated as generic crashes.
+- A blocked attack is handled by closing the game, waiting a randomized 3-5 minute window and reopening.
+- A Supercell maintenance break is waited out, with periodic checks and a maximum wait.
+- Not-logged-in, wrong-account and game-not-installed conditions stop rather than blindly retry.
+- Other round failures save the error screenshot, write diagnostics, notify if configured, restart the game and then restart the emulator if the game restart fails and a reopen callback is available.
+- Consecutive failures are capped; the bot stops after the configured internal threshold rather than looping forever.
+- Error screenshots are retained in a bounded set per account/farm.
+- Pause/stop checkpoints are designed to act between safe actions, not in the middle of a battle.
+
+This is a substantial resilience advantage. Still validate recovery on deliberately induced safe failures (ADB disconnect, game process closed, maintenance screen simulation, missing template) rather than forcing disruptive real-game failures.
+
+### OCR and CV dependency correction
+
+The OCR stack in COCFARM has three distinct local mechanisms:
+1. OpenCV template matching and color/shape analysis for buttons, cards, troop bars, spell icons, deploy boundaries and other visual UI.
+2. Custom glyph segmentation/classification in `farmbot/text.py` for numeric values such as loot, troop counts, timers and Clan Castle room capacities. Digits are learned from local screenshots via the font/glyph workflow.
+3. Windows built-in OCR via `farmbot/ocr.ps1` and `farmbot/ocr_lines.ps1` for actual words/text and line positions, used by player-name recognition, game-update dialogs, Build-list row names, equipment names, Clan Games challenge names and other text-based UI paths.
+
+Therefore it is not accurate to say COCFARM recognizes all text only through CV. It uses CV plus local glyph OCR plus the Windows OCR engine. None of these require Groq, Llama, a remote AI OCR API or uploading screenshots to a third-party model. The Windows OCR scripts require Windows 10 or later and depend on available Windows OCR language packs. The README's English game-language recommendation remains relevant because UI labels and templates are English-centric.
+
+### Unattended-operation tradeoffs
+
+- COCFARM's "Close game when not playing" closes the Clash of Clans app, not the emulator VM.
+- Its scheduled wake-up is Windows Task Scheduler based and uses an interactive logged-in session; it does not set WakeToRun, so it should not be described as waking a sleeping/off PC.
+- CoC_Bot's DISABLE_DEVICE_SLEEP attempts to keep the host awake; COCFARM has no equivalent setting found. This is an optional convenience gap, not a farming-feature gap.
+- CoC_Bot's SUSPEND_EMULATOR_ON_IDLE suspends emulator processes; COCFARM's offline-break behavior is not equivalent.
+- For the intended personal Windows PC, these two power-management features can be considered optional future additions. Do not add them without testing their effects on ADB, emulator integrity and Windows power behavior.
+
+### Updated migration assessment
+
+The source audit now supports choosing COCFARM as the base with high confidence for the target Windows desktop workflow. It has the more extensive farming/clan/upgrade features, more sophisticated scheduling and richer failure recovery. CoC_Bot-only features still worth deciding on are:
+- Independent Builder Base attack on/off switch.
+- Optional exclusion of donated Clan Castle troop cards during attacks.
+- Optional troop-bar slot range.
+- Optional global priority-vs-random upgrade selection.
+- Optional host-awake and emulator-suspend power management.
+These should be implemented as small native COCFARM config/UI additions only if desired, not by importing CoC_Bot's dashboard/API or rewriting COCFARM subsystems.
+
