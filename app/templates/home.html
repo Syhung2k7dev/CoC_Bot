@@ -43,7 +43,7 @@
                         idButton.type = "submit";
                         idButton.id = `id_${ids[i]}`;
                         idButton.value = ids[i];
-                        idButton.innerHTML = `${ids[i]}`;
+                        idButton.textContent = String(ids[i]);
                         document.querySelector(".stacked-buttons").appendChild(idButton);
                     }
 
