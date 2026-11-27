@@ -23,16 +23,20 @@ def launch_proc(args):
         update_status("stopped")
 
 
-def mark_instance_stopped(instance_id):
-    """Mark a forcibly stopped child process as stopped in the Web App."""
-    if not WEB_APP_URL:
+def mark_instance_stopped(instance_id, gui_port=None):
+    """Mark a forcibly stopped child process in the active status endpoint."""
+    if WEB_APP_URL:
+        base_url = WEB_APP_URL
+    elif gui_port is not None:
+        base_url = f"http://127.0.0.1:{gui_port}"
+    else:
         return
 
     import requests
 
     try:
         requests.post(
-            f"{WEB_APP_URL}/instances/{instance_id}/status",
+            f"{base_url}/instances/{instance_id}/status",
             json={"status": "stopped"},
             timeout=(1, 2),
         )
@@ -78,7 +82,7 @@ def gui_launch(args):
                 if p and p.is_alive():
                     p.terminate()
                     p.join()
-                    mark_instance_stopped(id)
+                    mark_instance_stopped(id, args.gui_port)
     except (EOFError, KeyboardInterrupt, SystemExit):
         get_gui().stop()
         pipe.close()
