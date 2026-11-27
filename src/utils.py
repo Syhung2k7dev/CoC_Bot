@@ -1282,10 +1282,11 @@ class LDPlayer_Manager(_Emulator_Manager):
         return cls._pid
 
     @classmethod
-    def check(cls):
+    def check(cls, instance_id=None):
         if sys.platform != "win32":
             return False
-        output = cls._run("isrunning", "--index", cls.instance_index).strip().lower()
+        index = cls._instance_info(instance_id)[0]
+        output = cls._run("isrunning", "--index", index).strip().lower()
         return output == "running" or output == "1"
 
     @classmethod
@@ -1295,16 +1296,16 @@ class LDPlayer_Manager(_Emulator_Manager):
             raise RuntimeError("LDPlayer is supported by this manager on Windows only.")
 
         cls.wake()
-        if cls.check():
+        if cls.check(instance_id):
             logger.info("LDPlayer instance already running.")
             return
 
-        index = cls._instance_info(instance_id)[0] if instance_id is not None else cls.instance_index
+        index = cls._instance_info(instance_id)[0]
         cls._run("launch", "--index", index)
 
         start_time = time.time()
         while time.time() - start_time < timeout:
-            if cls.check():
+            if cls.check(instance_id):
                 logger.info(f"LDPlayer instance '{instance_id or INSTANCE_ID}' started.")
                 return
             time.sleep(0.5)
