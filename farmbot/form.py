@@ -87,6 +87,7 @@ FIELDS = [
     Field("bot.theme", "text"),
     Field("bot.check_updates", "bool"),
     Field("bot.auto_first", "text"),
+    Field("builder.attack_enabled", "bool"),
     Field("builder.corner", "text"),
     Field("builder.use_hero", "bool"),
     Field("builder.troop_delay", "float", 0, 30),

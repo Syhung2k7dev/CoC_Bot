@@ -1319,7 +1319,8 @@ class Bot:
         """A Clan Games Builder Base challenge going: builder base battles
         are fought for it (whatever the mode), until the board is due a look."""
         cfg = self.config.clan_games
-        if not (cfg.enabled and self._games_going and self._games_going[1] == "builder"):
+        if not (self.config.builder.attack_enabled and cfg.enabled and self._games_going
+                and self._games_going[1] == "builder"):
             return False
         if self._no_boat or "builder_base" in self.locked():
             return False
@@ -1380,7 +1381,7 @@ class Bot:
         self.status("Clan Games")
         if stage == "games":
             # (Builder Base challenges: sailed over for, in any mode)
-            builder_too = "builder_base" not in self.locked() and not self._no_boat
+            builder_too = self.config.builder.attack_enabled and "builder_base" not in self.locked() and not self._no_boat
             kept = clan_games.memory_path(self._village_path(self._account))
             if not self._games_kept:  # (a restart: the challenges told before aren't opened again)
                 self._games_kept = True
@@ -2115,6 +2116,10 @@ class Bot:
         # (A Clan Games Builder Base challenge going: its battles are fought, full or not.)
         if may_leave and not self._games_building() and set(wanted) <= self.full_storages("builder"):
             self._village_full("builder")
+            return False
+        if not bcfg.attack_enabled:
+            log.info("Builder base: attacks disabled; maintenance, collection and upgrades are complete")
+            self._no_battle()
             return False
         self.checkpoint()
         if not self._left_selected:  # (a pinch finger on what's selected would move it)

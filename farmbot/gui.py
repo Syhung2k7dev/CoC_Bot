@@ -5489,6 +5489,8 @@ class FarmbotWindow(FluentWindow):
         self.depends("builder.troop_abilities", "builder.ability_delay", "builder.ability_batch")
 
         battle = page.add(SettingCardGroup("Battle"))
+        self.switch(battle, "builder.attack_enabled", Glyph.BOLT, "Attack the Builder Base",
+                    "Off: still collects resources, uses the free Clock Tower boost, and performs enabled upgrades/walls; it skips battles.")
         self.switch(battle, "builder.speed_up", Glyph.FAST, "Play at 4x speed",
                     "Presses the 1x button whenever it shows.")
         self.switch(battle, "builder.return_home_after", FIF.AIRPLANE, "Sail home when the bot stops",

@@ -176,7 +176,8 @@ mode = "home"  # "home", "builder", or "auto": one village until its stop_when_f
 auto_first = "home"  # mode "auto": start with "home" or "builder"
 stop_when_full = []  # e.g. ["gold", "elixir"]
 theme = "auto"  # the window: "auto" follows Windows, or "light" / "dark"
-check_updates = true  # look for a newer COCFARM on GitHub by itself (at most once an hour)
+check_updates = false  # this customized build does not self-update from upstream
+update_repo = ""  # leave empty unless a reviewed release repository is configured
 templates = "templates"
 threshold = 0.85
 collect_resources = true
@@ -197,3 +198,7 @@ wake_up = false  # every builder busy: close COCFARM, Windows opens it when the 
 # attacking, close the game until the soonest upgrade is done, then carry on.
 # COCFARM stays open (any emulator or phone); needs bot.read_village.
 pause_when_idle = false
+
+
+[builder]
+attack_enabled = true  # off: keep collection, Clock Tower, upgrades and walls; skip Builder Base battles

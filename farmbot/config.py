@@ -613,8 +613,8 @@ class BotConfig:
     history: str = "attacks.csv"  # one line per attack; "" turns it off
     error_screens: str = "screens/errors"  # screenshot saved when a round fails; "" turns it off
     # Where COCFARM's updates come from (GitHub "owner/name"; "" = never look).
-    update_repo: str = "BilinP/COCFARM"
-    check_updates: bool = True  # look for a newer COCFARM by itself (at most once an hour)
+    update_repo: str = ""
+    check_updates: bool = False  # disabled for this customized fork; never update from upstream automatically
 
 
 @dataclass
@@ -721,6 +721,8 @@ DISTRICT_ORDERS = ("destroyed", "stars")
 class BuilderConfig:
     """Builder base battles (see ``farmbot/tasks/builder.py``)."""
 
+    # Keep the Builder Base available for collection/upgrades without starting battles.
+    attack_enabled: bool = True
     corner: str = "auto"  # where the army goes in: auto = farthest from the base
     use_hero: bool = True
     # Swap to the other builder hero before a base when the current one's
