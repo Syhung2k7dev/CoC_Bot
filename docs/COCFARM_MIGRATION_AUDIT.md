@@ -381,3 +381,52 @@ The source audit now supports choosing COCFARM as the base with high confidence 
 - Optional host-awake and emulator-suspend power management.
 These should be implemented as small native COCFARM config/UI additions only if desired, not by importing CoC_Bot's dashboard/API or rewriting COCFARM subsystems.
 
+
+
+## Seventh-pass deep dive: GUI, profiles, local data, updater and user-facing operation
+
+### Desktop GUI and configuration model
+
+COCFARM's GUI is a native PySide6 / Qt 6 desktop application with Fluent Widgets. The pages cover Dashboard, Home Village, Builder Base, Wars & Raids, When to Play, Like a Person, History, Farms/accounts and Advanced. Settings are TOML-backed, validated as they are edited, saved automatically once valid, and picked up by a running bot at its next safe step. It has light/dark/follow-Windows themes, keyboard shortcuts, onboarding and a status/problem explanation layer.
+
+The GUI is not a web dashboard or local HTTP service. This matches the user's preference for a personal desktop-only application and avoids importing CoC_Bot's web server/API architecture.
+
+### Multi-account profile handling
+
+Profiles are account-specific and stored as:
+- `profiles/<player-name>.toml`: the account's settings.
+- `profiles/<player-name>.png`: a cropped/masked player-name image used to distinguish accounts visually.
+- `profiles/<player-name>.village.json`: the account's Data Export used to know its Town Hall, unlocks, levels and ongoing upgrades.
+
+PC-wide settings (emulator, screen regions, notifications, profile list and selected app theme/update settings) remain in the main `farmbot.toml`. Each farm has its own emulator configuration, history and error screenshots under `instances/<n>/`; account profiles and templates are shared across farms. The GUI supports starring a default profile, copying settings, renaming and deleting profiles. It blocks rename/delete while a farm is actively using that profile. Removing a farm preserves its folder as `removed-<n>` rather than immediately deleting its history.
+
+Account recognition uses the player's visible name image and Windows OCR; uncertain matches are not silently switched. If OCR cannot read a name, a fallback Account N profile is created and can be renamed later. This is a sensible fail-closed design, but verify two accounts with similar names and an OCR-unreadable name before relying on unattended multi-account operation.
+
+### Local data and privacy boundaries
+
+The inspected source stores settings, attack history (CSV), error screenshots, account name pictures, and village exports locally beside the app. The game Data Export is read locally from a file copied by the user; no cloud account is required for it. The normal farming/vision path does not upload screenshots or village exports to an AI/OCR service.
+
+The only clear optional outbound services in this area are GitHub release/update checks and Discord webhooks. Discord is disabled unless the user enters a webhook URL. Since the user has excluded Discord notifications, leave the webhook empty and do not port Telegram notifications. Treat `farmbot.toml`, profile TOMLs, village JSON, screenshots and logs as private user data: never commit them to the public source repository or include them in bug reports without reviewing/redacting them. A Discord webhook URL, if ever configured, is a credential and must not be shared.
+
+### Important migration-specific updater setting
+
+The current COCFARM default is `bot.update_repo = "BilinP/COCFARM"`, with `check_updates = true`. If the migrated application is customized in `Syhung2k7dev/CoC_Bot` (or a new repository) but keeps this default, the built app will continue checking and downloading the upstream COCFARM release, not the user's customized build. That could replace the user's customized program with an upstream release and effectively discard the migration in the installed copy.
+
+Before publishing a customized release, change the default update repository to the user's chosen repository and verify its release asset naming/checksum. Until that repository publishes compatible releases, turn automatic update checks off in the migrated build. Do not point the updater at a repository that does not yet contain compatible COCFARM release assets.
+
+### Updater implementation and limits
+
+The updater:
+- Checks GitHub releases using ETags and rate-limit backoff.
+- Downloads the Windows zip with resumable chunks.
+- Checks the asset's declared size and SHA-256 digest when GitHub provides one.
+- Rejects archives whose paths escape the expected `COCFARM/` root or contain parent traversal, absolute paths or colon characters, and requires `COCFARM/COCFARM.exe`.
+- Installs with a separate PowerShell process after the app exits, retains user data folders, and attempts rollback if moving the new program files fails.
+- Does not self-update when run from source; source users should update via Git.
+
+The checksum is not a publisher signature. It proves the downloaded bytes match the digest returned by GitHub's release metadata, but it does not protect against compromise of the repository, release account or GitHub publishing credentials. Keep the updater disabled until the customized repository/release flow is configured. For the first migrated releases, publish manually and verify the release artifact/checksum independently.
+
+### GUI and usability migration conclusion
+
+No major GUI feature from CoC_Bot needs to be transplanted. COCFARM already has a native desktop interface, profile management, per-account settings, history, onboarding and emulator management. The only GUI work justified so far is exposing the small accepted control gaps (especially Builder Base attack enable/disable) and removing/hiding unused Discord settings only if doing so does not make future upstream merges harder. Prefer leaving the unused Discord integration dormant rather than deleting large chunks of upstream code.
+
