@@ -637,3 +637,123 @@ A direct inspection of COCFARM's `farmbot/vision.py`, `farmbot/text.py`, `farmbo
 Conclusion: NX-ClashClient's calibration and recovery concepts are useful references, but COCFARM's current vision, glyph reading, scale detection and screen recovery are already more deeply integrated and in several respects more advanced. Do not replace them with NX's fixed-pixel/color-ROI implementation or its PrintWindow/PostMessage backend. The best next work is to add regression tests and improve observability/confidence around COCFARM's own existing engine. A calibration wizard should only be considered if actual user testing identifies a template-capture or setup pain point that the existing `farmbot crop` workflow does not solve.
 
 The tracker and AI-bot findings remain unchanged: tracker-style export/progress/timer models are optional product extensions; Gemini and other external AI/OCR are out of scope; raw-coordinate attack playback is not a replacement for the existing state-driven engine.
+
+
+## Twelfth-pass research: additional repositories worth mining
+
+This pass searched beyond the initial three references and inspected source files, repository trees, tests, data formats and licenses. The goal remains to keep COCFARM as the only bot runtime; external projects are reference sources or optional data/integration sources, not parallel bots.
+
+### 1. PixelChief — strongest reference for automated progression
+
+Repository: https://github.com/Leixien/pixelchief (MIT license)
+
+Useful concepts observed in its README and `app/core/upgrader.py`, `upgrade_menu.py`, `upgrade_policy.py`, and `village_state.py`:
+
+- Builder-menu scan into structured rows, including in-progress, suggested and other upgrades.
+- Separate Maxer/Rusher policies, reserve-builder settings, cheapest/priciest ordering, and dark-elixir-first prioritization.
+- Explicit gold buffer so farming entry fees are not consumed.
+- Dry-run mode before allowing purchases.
+- Re-read and stabilize the selected row before clicking; verify an upgrade actually started by checking the free-builder counter afterward.
+- Refuse uncertain purchases and treat red/unaffordable costs as a hard veto against accidental gem spending.
+- Read village state across multiple frames; unreadable builder/lab values remain unknown rather than being guessed.
+- Idle when storages are full and all builders are busy, then periodically recheck for newly available work.
+
+Limitations and caution:
+- The README says the Python sources were reconstructed from released bytecode and are being repaired; expect decompilation gaps and differences from upstream.
+- Auto-upgrade and minimum-loot features are marked beta in the README; documented screen support is English and primarily 16:9/16:10.
+- It is not a drop-in replacement for COCFARM's scheduler, device layer or vision system.
+
+Recommendation: high-value design reference for a future COCFARM building-upgrade planner/executor and safe idle gate. First compare against COCFARM's own current scheduler, builder-menu detection and purchase safeguards; port only missing domain logic, not the whole bot or decompiled implementation.
+
+### 2. Clash Timers — village export parser and boost-aware timers
+
+Repository: https://github.com/memehammad/clash-timers (GPL-3.0)
+
+Inspected `VillageParser.kt`, `GameData.kt`, `Boosts.kt`, and `Scheduler.kt`.
+
+Useful concepts:
+- Parse the game's own village JSON export, keyed by player tag and timestamp.
+- Model worker slots independently: Home builders, Laboratory, Pet House, Builder Base builders and Star Laboratory.
+- Account for helper levels and active boosts when computing remaining work.
+- Model Builder Potion/Builder Bite non-stacking and Research Potion/Study Soup stacking as distinct speed intervals.
+- Preserve uncertainty: unknown or missing export values should not be treated as confirmed zero.
+- Store several villages independently and derive completion/idle-builder reminders from imported snapshots.
+- Game data is updated through a scheduled workflow rather than requiring a hardcoded list of current timers.
+
+Limitations: Android widget, notifications, Shizuku and Smartspacer are not wanted for this desktop-only project. Its Kotlin UI/platform code is not useful to transplant.
+
+Recommendation: high-value reference for a Python village-export importer, worker-slot model, boost-aware ETA calculations and timer tests. The project is GPL-3.0, compatible with the COCFARM GPL-3-or-later base, but any copied code must retain notices and GPL obligations.
+
+### 3. coc-rush-helper — most comprehensive export/upgrade-planning logic found
+
+Repository: https://github.com/mateobaricevic/coc-rush-helper
+
+Inspected `dist/engine.js`, `dist/game-data.json`, tests and README.
+
+Useful concepts:
+- Robustly accepts raw village exports and wrapper objects, arrays or named objects, with explicit size/type/field validation.
+- Handles Home Village and Builder Base data, heroes, guardians, traps, troops, spells, pets, equipment, siege machines and newer Crafting Station modules.
+- Tracks unknown IDs and data warnings instead of silently dropping unsupported entries.
+- Separates import recognition from what is eligible for permanent research (e.g. seasonal and Super Troops should not become permanent lab-upgrade goals).
+- Army-aware research planning: recommend only lab and production-building upgrades needed for a selected army.
+- Tests include malformed data, native export variations, helper timers, extra workers, Builder Base and Crafting Station modules.
+- Bundled game data records upstream source, source commit and file hashes.
+
+Important limitation: no LICENSE file was found in the inspected default-branch tree. Do not copy its source or bundled data into CoC_Bot unless licensing is clarified. Use its behavior and test cases as design references only.
+
+Recommendation: very high-value reference for the export parser's compatibility matrix, unknown-item handling, upgrade-planning edge cases and regression tests. Its browser UI is not a reason to add a Web Dashboard.
+
+### 4. clash-of-clans-data — broad structured static game data
+
+Repository: https://github.com/chiefpansancolt/clash-of-clans-data (MIT license)
+
+The project supplies typed, structured data and images for Home Village, Builder Base and Clan Capital: buildings, defenses, troops, spells, heroes, equipment, pets, traps, walls, leagues and more. It is a Node package (requires Node.js 24+), but the underlying JSON data is language-neutral.
+
+Recommendation: investigate using a pinned, validated JSON snapshot as the data source for an eventual upgrade planner, rather than making the Python bot depend on a Node runtime. Preserve MIT notices, record the upstream commit/version and add a data validation/update workflow. Do not assume its static data is always current immediately after a game patch.
+
+A related extractor, https://github.com/Xayz-X/ClashOfClans, downloads and decompresses game asset data into JSON. It is a small reverse-engineering/data-extraction project; prefer the maintained structured dataset above unless the project has a specific missing field that justifies owning an extractor.
+
+### 5. cocapi — optional official API integration
+
+Repository: https://github.com/tonybenoy/cocapi (GPL-3.0)
+
+Inspected README and project metadata. It provides sync/async official API access, caching, retries, pagination/batching, typed models, maintenance detection and event polling for clans, wars and players.
+
+Potential use: an optional clan/war/player information module or data enrichment, separate from the emulator automation loop. This is not necessary for farming, and the public API does not replace screen recognition or reveal all private village state.
+
+Credential caution: the library advertises automatic developer-portal key management from email/password. Do not enable credential-based portal automation by default. If this integration is ever selected, prefer a manually supplied official API token, store it locally with restrictive permissions, and keep API access opt-in.
+
+### 6. COC Auto Farm — calibration and worker-thread patterns
+
+Repository: https://github.com/anugrhaswi/Coc-Auto-Farm (MIT license)
+
+Inspected `docs/ARCHITECTURE.md`, `calibrate.py` and `bot.py`.
+
+Useful concepts:
+- Dedicated worker thread with a thread-safe queue so the GUI thread is never manipulated by the bot worker.
+- Stop-event-aware waits and a clean stop lifecycle.
+- Structured logs and a separate calibration workflow.
+- Retry/recovery paths distinguish a failed scan from a genuine zero-resource reading.
+
+Limitations: the project relies on fixed normalized button coordinates and YOLO/EasyOCR for moving content. COCFARM already has a more integrated ADB/device abstraction, template vision, local glyph recognition and centralized screen state machine. Do not replace COCFARM's engine with this fixed-coordinate approach.
+
+Recommendation: inspect its retry/failure classification and UI-thread communication as a secondary reference, but prioritize COCFARM's existing abstractions.
+
+### 7. Lower-value or unsuitable findings
+
+- `jatizon/clash-of-clans-bot`: behavior-tree architecture is a useful general design pattern, but the inspected implementation is a small prototype with simple nodes and no evidence it improves on COCFARM's existing state machine and scheduler. Do not migrate it.
+- `Statscell/clash-of-clans-data`: MIT, but the inspected dataset dates from 2021 and is less suitable than the newer structured dataset above.
+- `Somat-1/coc_bot`: its official-API war tracker demonstrates participation reports and historical analytics, but the repository describes itself as a personal project and no clear reusable license was established. Prefer the licensed API client if official API functionality is later required.
+- Repositories built around raw coordinate playback, brittle fixed waits, external Gemini/OCR services, or event-specific hardcoding remain out of scope.
+
+### Consolidated recommendation from this pass
+
+Prioritize future investigation/integration in this order:
+
+1. **Village Export + Upgrade Planner:** parser, normalized village model, builder/lab/pet/Builder Base timers, unknown-field reporting and upgrade goals. Use Clash Timers and coc-rush-helper as design/test references; use a licensed structured dataset such as clash-of-clans-data after validating coverage.
+2. **Safe Auto-Upgrade:** dry-run, resource buffers, reserve builders, multi-frame corroboration, hard gem-spend veto, and post-action verification. PixelChief is the strongest reference, but its decompiled source should not be treated as production-ready.
+3. **Boost-aware ETA:** model active potions/helpers/Clock Tower as time intervals, with explicit stacking rules and unit tests.
+4. **Optional official clan API module:** only if clan/war/player features are explicitly wanted; use cocapi with manual token configuration, not portal password automation.
+5. **Do not add another bot runtime, Android UI, Web Dashboard, external AI/OCR, Telegram, or iPhone Shortcut.**
+
+No third-party bot source code has been imported by this audit update. These are research findings and implementation candidates only.
