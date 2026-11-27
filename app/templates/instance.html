@@ -241,26 +241,24 @@
                     }
                     const time_string = time_array[time_index] + time_labels[time_index];
 
-                    if (document.getElementById(`notif_${currentIndex}`)) {
-                        document.getElementById(`notif_${currentIndex}`).innerHTML = `
-                        <div class="notif">
-                            <div class="notif_data">${notif.data}</div>
-                            <div class="notif_age">${time_string}</div>
-                        </div>
-                        `;
-                    } else {
-                        const notifDiv = document.createElement("div");
+                    let notifDiv = document.getElementById(`notif_${currentIndex}`);
+                    if (!notifDiv) {
+                        notifDiv = document.createElement("div");
                         notifDiv.className = "notification";
                         notifDiv.id = `notif_${currentIndex}`;
-                        notifDiv.innerHTML = `
-                        <div class="notif">
-                            <div class="notif_data">${notif.data}</div>
-                            <div class="notif_age">${time_string}</div>
-                        </div>
-                        `;
-
                         document.getElementById("notifications").appendChild(notifDiv);
                     }
+
+                    const notifContent = document.createElement("div");
+                    notifContent.className = "notif";
+                    const notifData = document.createElement("div");
+                    notifData.className = "notif_data";
+                    notifData.textContent = String(notif.data ?? "");
+                    const notifAge = document.createElement("div");
+                    notifAge.className = "notif_age";
+                    notifAge.textContent = time_string;
+                    notifContent.append(notifData, notifAge);
+                    notifDiv.replaceChildren(notifContent);
 
                     currentIndex++;
                 }
