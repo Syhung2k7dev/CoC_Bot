@@ -1,6 +1,7 @@
 name: Import audited COCFARM runtime
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - cocfarm-migration-audit
