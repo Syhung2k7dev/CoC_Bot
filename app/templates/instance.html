@@ -70,7 +70,7 @@
 
         {% if id and end_time is number and current_time is number %}
         <script>
-            const id = "{{ id }}";
+            const id = {{ id | tojson }};
             let start = Date.now();
             let current_time = {{ current_time }};
             let end_time = {{ end_time }};
