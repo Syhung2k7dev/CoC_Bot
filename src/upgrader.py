@@ -488,9 +488,12 @@ class Upgrader:
                 self._scroll_to_menu_bottom(menu_left, menu_right, menu_top, menu_bottom)
             
             town_hall_template = [render_text("Town Hall", "SupercellMagic", 17)]
-            hero_templates = [render_text(text, "SupercellMagic", 17) for text in Cache_Manager.get("vocab", get_vocab())["heroes"]]
+            vocab = Cache_Manager.get("vocab")
+            if vocab is None:
+                vocab = get_vocab()
+            hero_templates = [render_text(text, "SupercellMagic", 17) for text in vocab.get("heroes", [])]
             seasonal_defense_template = [render_text("Crafting Station", "SupercellMagic", 17)]
-            heros_excluded = Task_Handler.excluded("heroes")
+            heroes_excluded = Task_Handler.excluded("heroes")
             
             def locate_upgrade():
                 frame = Frame_Handler.get_frame(grayscale=False)
