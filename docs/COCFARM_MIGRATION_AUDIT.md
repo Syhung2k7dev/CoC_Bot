@@ -288,3 +288,38 @@ CoC_Bot's README claims automatic game updates, but no equivalent implementation
 
 COCFARM remains the better functional base for the intended Windows desktop migration. The code review so far has not uncovered a reason to reverse the platform choice. However, this is still a source-level assessment: do not call the migrated bot stable until the deployment PRs are reviewed, the open donation/attack reports are reproduced or disproven, and bounded emulator tests pass.
 
+
+
+## Fifth-pass deep dive: upgrade engine and progression tracking
+
+### COCFARM upgrade architecture
+
+The COCFARM upgrade engine is not just a loop over fixed screen coordinates. The inspected source shows:
+- Reads the game's live Build list, applies resource/type filters and sorts by Cost Max, then identifies affordable rows.
+- Separately handles new/unbuilt buildings, Town Hall prerequisites, walls, hero upgrades, pets, laboratory research and Hero Equipment.
+- Uses a configurable ordered list of upgrade categories and optional ordered allow-lists for buildings, research and equipment.
+- Tracks remaining resource budgets between upgrades so it does not repeatedly assume the original storage amount is still available.
+- Reads builder availability and laboratory availability, can retain a chosen number of builders, and keeps a builder free for walls when configured.
+- Avoids spending gems: an upgrade window with a gem price is closed unpaid.
+- Detects locked upgrades and passes over rows that repeatedly fail rather than tapping them every round.
+- Uses an account-specific upgradable survey saved beside the village export, invalidated when Town Hall/Laboratory levels change and refreshed daily.
+- Assigns Builder's Apprentice and Lab Assistant to eligible ongoing work.
+- Handles Builder Base separately with its own resource budgets, builders and Star Laboratory.
+
+### CoC_Bot upgrade comparison
+
+CoC_Bot has the core upgrade categories and user-defined priority lists for Home and Builder Base. It also has explicit booleans for priority-vs-random behavior and a maximum number of upgrades per check. Its implementation is more coordinate/template-driven and has repeated OCR/template searches for builder counts and lab availability.
+
+COCFARM's upgrade flow is more integrated with the live Build list and current village export. It has category ordering, name allow-lists, resource accounting, Town Hall/new-building handling, walls hand-off, equipment/ore upgrades, daily surveys and helper assignment. CoC_Bot's explicit random-order fallback is a small convenience gap, not a reason to transplant its upgrader. If desired, add a native COCFARM use_priority_order setting later; default it on so current behavior is preserved.
+
+### Potential upgrade risks to validate
+
+1. OCR/template recognition of the Build list rows and prices after game UI updates.
+2. Correct resource budget tracking when several upgrades start in one round and resources are spent concurrently.
+3. Town Hall prerequisite handling and newly unlocked buildings after Town Hall upgrades.
+4. Builder limits and keeping one builder free for walls.
+5. Hero Equipment ownership/max-level interpretation from the village export, especially Epic equipment whose export level may not mean it is owned.
+6. Recovery when the Build list or a confirmation dialog fails to appear.
+7. Builder Base upgrade behavior with a missing/ambiguous builder count or a busy Star Laboratory.
+
+No code changes to the upgrade engine are justified from this comparison yet. The main missing CoC_Bot convenience is a global random-vs-priority switch; COCFARM's ordered category and allow-list system should remain intact.
