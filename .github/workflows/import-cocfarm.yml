@@ -44,6 +44,9 @@ jobs:
 
           # Extract the pinned upstream tree into the repository root.
           git -C "$upstream_dir" archive "$UPSTREAM_SHA" | tar -x -C .
+          # This repository does not need upstream release automation. Keeping
+          # that workflow would require granting workflow-file write permission.
+          rm -f .github/workflows/windows-exe.yml
           mkdir -p docs
           cp "${RUNNER_TEMP}/preserved/docs/COCFARM_MIGRATION_AUDIT.md" docs/
 
@@ -53,10 +56,10 @@ jobs:
           This repository uses COCFARM as its sole runtime base.
 
           - Upstream: https://github.com/BilinP/COCFARM
-          - Imported commit: `$UPSTREAM_SHA`
+          - Imported commit: $UPSTREAM_SHA
           - Commit URL: https://github.com/BilinP/COCFARM/commit/$UPSTREAM_SHA
-          - License: GNU GPL version 3 or later; see the root `LICENSE`.
-          - Third-party notices: see `THIRD_PARTY_NOTICES.md` and `licenses/`.
+          - License: GNU GPL version 3 or later; see the root LICENSE.
+          - Third-party notices: see THIRD_PARTY_NOTICES.md and licenses/.
 
           The source is copied into this repository, not linked as a submodule.
           Preserve upstream copyright and license notices. Review future upstream
