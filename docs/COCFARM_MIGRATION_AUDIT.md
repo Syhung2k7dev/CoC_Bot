@@ -170,3 +170,60 @@ The CoC_Bot template config also contains:
 - macOS desktop/runtime support. COCFARM's current GUI, Windows OCR PowerShell scripts, scheduled-task wake-up and emulator adapters are Windows-oriented. This is not a practical loss if the target machine is Windows.
 
 COCFARM already has automatic emulator launch, emulator standardization, automatic game restart and emulator recovery, plus an optional Windows Task Scheduler wake-up between upgrades. CoC_Bot's emulator suspend feature should be considered separately; do not assume COCFARM automatically shuts down or suspends the emulator when idle. COCFARM's offline-break setting closes the game app, not the emulator VM.
+
+
+## Third-pass deep dive: Clan donations, Builder Base deployment and PR review
+
+### Clan donation implementation (COCFARM main)
+
+The current main implementation in `farmbot/tasks/donate.py` is substantially more complete than the older open bug reports alone suggest:
+- Detects donation cards using image matching against local troop-picture assets and classifies available/greyed-out cards by saturation.
+- Reads the requester's Clan Castle room from the request bubble using local glyph OCR, then chooses a preset army for the matching Castle level when no explicit main troop list is configured.
+- Supports prioritized main troops, optional fill with the largest eligible troop, selected Siege Machines, selected spells, and request-specific troop lists.
+- Pages horizontally through troop/spell cards, flicks to the end for Siege Machines, and returns to earlier pages when filling is needed.
+- Detects gem-priced donation mode and refuses to spend gems.
+- Checks whether each tap actually changed donation counters / donated-unit strip; retries one missed tap and raises `Refused` when the request filled or the game refuses the donation.
+- Iterates multiple chat requests (up to `MAX_OPENS = 12`) and tracks already handled request bubbles so new/moved requests can be handled without looping forever.
+- Clan request flow reads the request cooldown and waits out short cooldowns; it also has a separate Army-window request path when configured to empty the Castle first.
+
+This is evidence that COCFARM has the donation features that were missing or unreliable in older versions. However, issue [#25](https://github.com/BilinP/COCFARM/issues/25) and [#29](https://github.com/BilinP/COCFARM/issues/29) remain open in the upstream issue tracker as checked on 2026-11-28. #25 reports concurrent-fill refusal/crash, Siege Machine paging, only donating to the top request, slow request cooldown handling; #29 reports certain troop cards not being clicked and MuMu zoom-out failure. The current code contains explicit handling for each of the donation workflow features described, but no committed main-branch automated donation regression suite was found. Do not assume those user-reported cases are fully resolved until the exact scenarios are replayed against the current release and main.
+
+### Clan Castle donated troops during attacks: PR #38
+
+PR #38 is a targeted fix for a distinct attack-bar recognition bug. The current army-bar classifier distinguishes counted troops, spells, heroes, Siege Machines and empty slots. The PR adds a separate `castle` card type for standalone Clan Castle troops (cyan frame, no level badge), avoids mistaking the Clan emblem for a Siege Machine level badge, treats it as a single-deployment card, and prevents Siege Machine/hero ability logic from being applied to it.
+
+The PR adds synthetic OpenCV tests for different Clan emblems, dashed empty slots, Siege Machine toggle behavior, successful/refused deployment, and single deployment dispatch. These are useful offline regression tests with synthetic pixels rather than player screenshots. They do not replace a live supervised test across supported emulator scales/themes, but they are meaningful coverage. The fix should be reviewed for integration and likely adopted after validating its base/head compatibility; it directly addresses a real missing case in the current attack recognition path.
+
+### Builder Base no-hero deployment: PR #40
+
+PR #40 addresses a serious correctness issue: without a Builder Base hero, the bot's old first-troop position was offset incorrectly and the deployment loop treated a card as a single unit rather than reading its count. The proposed patch:
+- Loads cached village/hero metadata before deciding the Builder Base hero layout.
+- Shifts the first troop slot left when there is no hero.
+- Reads troop counts with local glyph recognition and validates confidence/range.
+- Verifies that each deployment reduced the count before continuing.
+- If the count is unknown or an input's effect is uncertain, stops further deployments, saves the error screen and waits for the natural battle result instead of blindly retrying.
+- Adds synthetic tests for no-hero/hero cases, counted troops, unknown counts, uncertain first taps and preventing automatic recovery/re-admission after uncertain deployment.
+
+This is a safety/correctness-oriented patch and should be strongly considered for adoption after a focused code review. Its key invariant is important: an uncertain deployment must not be replayed automatically, since that could send unintended additional troops.
+
+### BlueStacks concurrency cap: PR #39
+
+PR #39 is not a general emulator limit. It adds a per-COCFARM-window queue for BlueStacks farms only, with verified ownership/exit checks, queueing, pause/stop behavior, round handoff, held slots when cleanup cannot be verified, and a per-PC setting. It explicitly does not cap LDPlayer, MuMu or manual ADB devices and does not coordinate separate COCFARM processes.
+
+The PR adds a comparatively broad synthetic test set covering queue fairness, dynamic limit changes, worker lifecycle, startup cancellation, ownership/exit ambiguity, GUI behavior and round handoff. This is useful if several BlueStacks instances are run simultaneously on a RAM-limited PC. It is optional and should not be ported blindly: the process inventory and native window-title ownership logic are Windows/BlueStacks-specific and add substantial complexity. First establish whether the user's actual emulator count and RAM pressure justify it.
+
+### Current risk ranking after this pass
+
+1. **High: troop deployment correctness** — adopt/review PR #38 and #40, then validate against live game screens.
+2. **High: donation regression scenarios** — despite a mature implementation, open issues #25/#29 and lack of committed main-branch tests justify targeted tests and supervised runs.
+3. **Medium: multi-BlueStacks memory pressure** — PR #39 is optional, scoped, and complex; only adopt if needed.
+4. **Medium: spell placement and Royal Champion walk** — issue #22 and #30 remain concrete scenarios to reproduce and test.
+5. **Low for the current Windows target: macOS support** — no need to port CoC_Bot's macOS-specific code.
+
+### Next source audit tasks
+
+1. Trace all PR #38 and #40 changed lines against the audited main snapshot and verify their patches apply cleanly to the exact current base.
+2. Review donation issue #25/#29 against current donation code and create tests for full-while-donating, paging to Siege Machines, multiple requests, and request cooldown.
+3. Audit spell placement and Royal Champion walk against issues #22/#30.
+4. Check game-update flow and all emulator recovery branches.
+5. Then implement only the accepted migration gaps on the user's own branch, with config/form/example/validation/tests updated together.
