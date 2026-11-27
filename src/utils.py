@@ -1285,9 +1285,9 @@ class LDPlayer_Manager(_Emulator_Manager):
     def check(cls, instance_id=None):
         if sys.platform != "win32":
             return False
-        index = cls._instance_info(instance_id)[0]
-        output = cls._run("isrunning", "--index", index).strip().lower()
-        return output == "running" or output == "1"
+        row = cls._instance_info(instance_id)
+        # list2 field 4 is LDPlayer's documented Android-started flag.
+        return len(row) > 4 and row[4].lower() in ("1", "true", "running")
 
     @classmethod
     def start(cls, instance_id=None, timeout=90):
