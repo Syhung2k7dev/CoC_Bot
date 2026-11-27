@@ -125,6 +125,7 @@ FIELDS = [
     Field("walls.keep_elixir", "percent", 0, 100),
     Field("walls.only_when_full", "bool"),
     Field("upgrade.enabled", "bool"),
+    Field("upgrade.strategy", "text"),
     Field("upgrade.order", "order"),
     Field("upgrade.pets", "bool"),
     Field("upgrade.heroes", "bool"),

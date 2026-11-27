@@ -1510,7 +1510,8 @@ class Bot:
         started = upgrade.upgrade(self.game, cfg, self.read_resources, full, last=not walls_after,
                                   hand_over=handed if walls_after else None, locked=self.locked(),
                                   total=self.village.builders if self.village else 0, report=report,
-                                  survey=self._upgrade_survey() if first else None, kinds=kinds,
+                                  survey=self._upgrade_survey() if first or cfg.upgrade.strategy == "maxer" else None,
+                                  kinds=kinds,
                                   walls_after=walls_after)
         self.session["upgrades"] += started
         if first or self._upgrade_report is None:
@@ -1526,6 +1527,8 @@ class Bot:
             self._read_village_again()  # for when it'll be done
         if started:
             self._left_selected = self._left_zoomed_in = not walls_after
+            if cfg.upgrade.strategy == "maxer":
+                self._read_village_again()  # Maxer needs fresh timers before it may allow the Town Hall.
         if self.game.built_new:
             self._village_changed()
 

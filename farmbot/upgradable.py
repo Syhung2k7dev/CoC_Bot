@@ -195,3 +195,28 @@ class Survey:
             return
         if self.on_saved:
             self.on_saved()
+
+
+
+def maxed_for_town_hall(path: str | Path | None, village: townhall.Village | None, now: float,
+                        required: tuple[str, ...] = KINDS) -> bool:
+    """Whether the surveyed building/research lists leave no current-TH
+    upgrades before the Town Hall. Unknown or stale data always says no."""
+    if path is None or village is None:
+        return False
+    if any(end > now for ends in village.finishing.values() for end in ends):
+        return False
+    for which in required:
+        if which not in KINDS:
+            raise ValueError(f"unknown upgrade survey {which!r}")
+        seen = current(path, village, which)
+        if seen is None:
+            return False
+        remaining = left_to_start(path, village, which, None, now)
+        if remaining is None:
+            return False
+        if which == "buildings":
+            remaining.discard("Town Hall")
+        if remaining:
+            return False
+    return True

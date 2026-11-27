@@ -187,6 +187,7 @@ error_screens = "screens/errors"
 
 [upgrade]
 enabled = false  # upgrade once a storage is full (or holds the start_* amount)
+strategy = "rush"  # "rush" prioritizes Town Hall; "maxer" waits for enabled upgrade categories to be maxed
 # What to upgrade first, first to last. "equipment" is hero equipment (ore, at
 # the Blacksmith, no builder); a file without it gets it last.
 order = ["pets", "hero", "research", "equipment", "building", "walls"]

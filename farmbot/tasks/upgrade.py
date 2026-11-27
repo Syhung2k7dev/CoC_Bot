@@ -52,6 +52,7 @@ from farmbot.tasks.build_list import (BUILDER, FAILED, HOME, HUD_SHIFT_PX, LOCKE
                                       top_row_affordable, town_hall_row, upgrade_row)
 from farmbot.tasks import equipment
 from farmbot.tasks.helpers import APPRENTICE, LAB_ASSISTANT, assign_helper, needed
+from farmbot import upgradable
 from farmbot.upgradable import Survey
 from farmbot.tasks.search import Loot
 from farmbot.tasks.village import close_all_windows, deselect
@@ -197,7 +198,8 @@ def upgrade(game: Game, cfg: Config, read_resources: Reader, full: set[str], las
             return 0
         if survey is not None:
             _survey(game, survey, {"buildings": ucfg.buildings,
-                                   "research": ucfg.lab and "research" not in (locked or {})}, lst)
+                                   "research": ucfg.lab and "research" not in (locked or {})}, lst,
+                    force=ucfg.strategy == "maxer")
         left = {"builders": builders}
         seen: dict | None = None if report is None else {}
         only = tuple(ucfg.only) or None  # (in the order they go first)
@@ -207,9 +209,28 @@ def upgrade(game: Game, cfg: Config, read_resources: Reader, full: set[str], las
         equipment_picks = tuple(ucfg.equipment_only) or None
         if research and "research" in kinds:
             log.info("Upgrades: only this research, first to last: %s", ", ".join(research))
+        town_hall_allowed = ucfg.town_hall
+        if ucfg.strategy == "maxer":
+            required = tuple(which for which, enabled in (
+                ("buildings", ucfg.buildings),
+                ("research", ucfg.lab and "research" not in (locked or {})),
+            ) if enabled)
+            town_hall_allowed = upgradable.maxed_for_town_hall(
+                survey.path if survey else None, survey.village if survey else None, game.clock(), required)
+            failed = game.__dict__.get("survey_failed", {})
+            if any(which in failed for which in required):
+                town_hall_allowed = False
+            if town_hall_allowed and ucfg.pets and "pets" not in (locked or {}):
+                open_tab(game, "pets")
+                pet_free = tab_free(game, "pets")
+                pet_rows = rows(game, ("dark",))
+                if busy(game) or pet_free is None or pet_free <= 0 or pet_rows is None or pet_rows:
+                    town_hall_allowed = False
+            if not town_hall_allowed:
+                log.info("Maxer: Town Hall deferred; an enabled upgrade is available, underway, or not verified")
         done = _in_order(game, kinds, HOME_SPEND, ucfg.first, ucfg.heroes, budget, builders, read_resources, lst,
                          new=ucfg.new_buildings, left=left, seen=seen, only=only, research=research,
-                         equipment_picks=equipment_picks)
+                         equipment_picks=equipment_picks, town_hall_allowed=town_hall_allowed)
         if seen is not None:
             report["town_hall"] = bool(seen.get("town_hall"))
             # What's still free to start one (None: not read): the builders it may use, the laboratory.
@@ -332,7 +353,7 @@ def _in_order(game: Game, kinds: list[str], spend: dict[str, tuple[str, ...]], f
               budget: dict[str, int], builders: int, read_resources: Reader, lst: BuildList,
               new: bool = False, left: dict | None = None, seen: dict | None = None,
               only: tuple[str, ...] | None = None, research: tuple[str, ...] | None = None,
-              equipment_picks: tuple[str, ...] | None = None) -> int:
+              equipment_picks: tuple[str, ...] | None = None, town_hall_allowed: bool = True) -> int:
     """Each kind of upgrade in turn, with the resources it may spend that
     are still in ``budget``; with ``new``, buildings not built yet come
     first among the buildings (free ones, like new walls, before anything).
@@ -359,7 +380,7 @@ def _in_order(game: Game, kinds: list[str], spend: dict[str, tuple[str, ...]], f
         elif builders > 0:
             picked = only if kind == "building" else None
             types = ["hero"] if kind == "hero" else [None] if picked else building_kinds(first, heroes)
-            if kind == "building" and _upgrades_town_hall(lst):
+            if kind == "building" and town_hall_allowed and _upgrades_town_hall(lst):
                 # Not under Defense, Resource or Army: looked for on its own, before those take the builders.
                 types = ["town hall", *types]
             if new and kind == "building":
@@ -846,7 +867,7 @@ def _picked_research(game: Game, money: list[str], budget: dict[str, int], read_
     return 0
 
 
-def _survey(game: Game, survey: Survey, wanted: dict[str, bool], lst: BuildList) -> None:
+def _survey(game: Game, survey: Survey, wanted: dict[str, bool], lst: BuildList, force: bool = False) -> None:
     """Read through the lists due it (once a day at most): what's in them
     can still be upgraded; kept for the window to grey out the rest. A
     list that couldn't be read through isn't tried again for a while."""
@@ -854,7 +875,7 @@ def _survey(game: Game, survey: Survey, wanted: dict[str, bool], lst: BuildList)
 
     failed = game.__dict__.setdefault("survey_failed", {})
     for which, tab in (("buildings", "buildings"), ("research", "army")):
-        if not wanted.get(which) or not survey.due(which):
+        if not wanted.get(which) or (not force and not survey.due(which)):
             continue
         if which in failed and game.clock() - failed[which] < SURVEY_AGAIN:
             continue

@@ -4868,6 +4868,9 @@ class FarmbotWindow(FluentWindow):
     def _upgrades_tab(self, page: Page) -> None:
         ups = page.add(SettingCardGroup("Upgrades"))
         self.switch(ups, "upgrade.enabled", FIF.UP, "Upgrade automatically", UPGRADE_HELP)
+        self.segments(ups, "upgrade.strategy", FIF.FLAG, "Upgrade strategy",
+                      "Rush: prioritize the Town Hall. Maxer: defer it until enabled building, research and pet upgrades are complete. Equipment remains an independent ore upgrade.",
+                      {"rush": "Rush", "maxer": "Maxer"}, width=100)
         self._start_amounts(ups)
         self.upgrade_list = self.priority(ups, "upgrade.order", "What to upgrade first",
                       ORDER_HELP,

@@ -636,6 +636,7 @@ class UpgradeConfig:
     or holds the amount set for it (see ``farmbot/tasks/upgrade.py``)."""
 
     enabled: bool = False
+    strategy: str = "rush"  # rush: Town Hall early; maxer: wait for enabled upgrades to be maxed
     # Start on a resource once it reaches this much, not only once its
     # storages are full (0: once they're full).
     start_gold: int = 0
@@ -696,6 +697,7 @@ class UpgradeConfig:
 
 WALL_RESOURCES = ("gold", "elixir", "both")
 UPGRADE_FIRST = ("defense", "resource", "army", "none")
+UPGRADE_STRATEGIES = ("rush", "maxer")
 # "walls": where the walls take their turn (they have their own settings: walls.*, builder.walls*).
 # "equipment": hero equipment (ore, at once). An older file without it gets it last.
 UPGRADE_ORDER = ("pets", "hero", "research", "equipment", "building", "walls")
@@ -934,6 +936,8 @@ class Config:
             raise ValueError(f"walls.use must be one of {WALL_RESOURCES}")
         if self.upgrade.first not in UPGRADE_FIRST:
             raise ValueError(f"upgrade.first must be one of {UPGRADE_FIRST}")
+        if self.upgrade.strategy not in UPGRADE_STRATEGIES:
+            raise ValueError(f"upgrade.strategy must be one of {UPGRADE_STRATEGIES}")
         if self.builder.upgrade_first not in UPGRADE_FIRST:
             raise ValueError(f"builder.upgrade_first must be one of {UPGRADE_FIRST}")
         for name, order, kinds in (("upgrade.order", self.upgrade.order, UPGRADE_ORDER),
