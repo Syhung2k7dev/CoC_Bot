@@ -18,7 +18,6 @@ _update/
 
 # Not published: tests, docs, third-party samples
 tests/
-docs/
 samples/
 farmbot.log
 
