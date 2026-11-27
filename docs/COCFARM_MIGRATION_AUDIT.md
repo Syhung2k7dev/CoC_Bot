@@ -227,3 +227,64 @@ The PR adds a comparatively broad synthetic test set covering queue fairness, dy
 3. Audit spell placement and Royal Champion walk against issues #22/#30.
 4. Check game-update flow and all emulator recovery branches.
 5. Then implement only the accepted migration gaps on the user's own branch, with config/form/example/validation/tests updated together.
+
+
+## Fourth-pass deep dive: spell placement and Hero Walk
+
+### Spell placement (issue #22)
+
+Current COCFARM main contains explicit mechanisms for both modes:
+- `spell_placement = "together"`: one common point selected by `spell_spot`; the default is `"random"`, chosen inside the middle portion of the base and deliberately kept away from the previous battle's spot when possible.
+- `spell_placement = "spread"`: points are distributed around the base using a golden-angle sequence with a randomized starting angle and small per-point jitter. This is designed to avoid a straight line and distribute spells around the deploy ring.
+- Star-focused battles derive the spell point from the attack push direction and configured depth; the random variant perturbs around that push point.
+- Earthquake spells have separate path/spot targeting and a configurable count per opening point; funneling can send a small troop/hero group ahead of the main army.
+
+This is a substantial algorithmic answer to the behavior described in open issue [#22](https://github.com/BilinP/COCFARM/issues/22). However, the issue remains open and no committed automated test suite for screenshot-derived spell coordinates was found in main. Verify that the GUI maps the "Together/Spread" and "Random/Middle" settings correctly, then replay repeated attacks with identical bases and record the coordinates. A code-level random generator does not by itself prove the deployed coordinates are valid or sufficiently varied.
+
+### Royal Champion / Archer Queen Hero Walk (issue #30)
+
+The current `farmbot/tasks/walk.py` contains a detailed visual tracking and timing system:
+- Detects the hero from her health bar, card hue and level badge; pale/hidden sightings are confirmed across multiple looks.
+- Tracks movement direction from recent sightings, predicts forward only for a bounded time window, and refuses to cast at stale/unknown locations.
+- Places Invisibility ahead of a moving hero, bounded by the spell circle's radius, rather than repeatedly targeting the last seen coordinate.
+- Detects when she leaves the current spell circle and can queue another spell before the old coverage expires.
+- Detects likely missed spells from health loss and from the hero remaining visible after the expected landing time; avoids repeatedly using the same failed coordinate.
+- Accounts for Spirit Fox invisibility/cooldown timing and can use the Royal Champion's Rocket Spear level from the village export to decide when to fire her ability early.
+- Uses frequent looks (nominally 0.1 s) to track health and location; the algorithm has multiple thresholds and heuristics calibrated in comments against observed in-game behavior.
+
+These code paths directly target the failure modes described by issue [#30](https://github.com/BilinP/COCFARM/issues/30): stale coordinates, spells landing behind a moving Champion, leaving the invisibility circle, and Rocket Spear level not being considered. Yet #30 is still open in the issue tracker. The implementation is complex and heuristic; without replaying the reported scenarios, do not mark the issue resolved. This is one of the highest-value live-validation areas because a mistaken sighting can waste spells and cause the hero to fall early.
+
+### Deployment point detection
+
+The Home attack path does not rely on one fixed deployment line alone:
+- First tries the red deploy boundary via HSV/shape checks (`redline.py`).
+- Finds the building area via bright grass, building clusters, and texture analysis (`deployzone.py`) for maps/sceneries where grass color is unreliable.
+- Excludes UI regions and screens points based on surrounding ground/obstruction.
+- Uses fixed per-side lines as a last-resort fallback.
+- Checks whether troops actually deployed by re-reading the troop card/count; if no first deployment succeeds and the screen is still zoomed in, it attempts a forced zoom-out and recalculates points once.
+
+This is a layered strategy and materially more sophisticated than CoC_Bot's simpler card/edge deployment path. Its weakness is reliance on screen appearance, scale, scenery and template/glyph calibration; regression fixtures should include grass, city/stone/snow scenery, low Town Hall layouts, zoomed-in views and UI overlays.
+
+### Game update flow
+
+COCFARM's `farmbot/gameupdate.py` is a separate Android UIAutomator-based update flow:
+- Recognizes the game's update dialog from OCR text and the Update button.
+- Opens the Play Store, uses UIAutomator XML to find Update/Open/Play controls, and watches the installed package version.
+- Handles unsigned-in Play Store, no-update state, long installs, stopping/restarting the game after install, and a long first-load wait.
+- The updater is not a generic app store installer; it is specific to the Clash of Clans package and Android Play Store behavior.
+
+CoC_Bot's README claims automatic game updates, but no equivalent implementation was confirmed in the inspected CoC_Bot source paths. This is currently a COCFARM strength; test with a controlled emulator/update state rather than trying to trigger a real game update during ordinary farming.
+
+### Updated risk ranking
+
+1. **High: live deployment correctness** — PR #38 and #40 are not in audited main; review and selectively integrate, then validate.
+2. **High: donations** — current code has robust workflow logic, but open #25/#29 and no committed focused tests leave important race/paging cases unproven.
+3. **High: Hero Walk** — the code contains specific fixes for #30, but the issue remains open; verify on a controlled test account.
+4. **Medium: spell placement** — algorithms address #22, but validate actual coordinate diversity and placement on real layouts.
+5. **Medium: multi-emulator RAM cap** — PR #39 is optional and BlueStacks-only; do not adopt unless needed.
+6. **Medium: scenery and zoom robustness** — test all deployment-point detection fallbacks across emulator resolutions and map themes.
+
+## Current decision after four audit passes
+
+COCFARM remains the better functional base for the intended Windows desktop migration. The code review so far has not uncovered a reason to reverse the platform choice. However, this is still a source-level assessment: do not call the migrated bot stable until the deployment PRs are reviewed, the open donation/attack reports are reproduced or disproven, and bounded emulator tests pass.
+
