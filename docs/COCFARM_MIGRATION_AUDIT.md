@@ -406,7 +406,7 @@ Account recognition uses the player's visible name image and Windows OCR; uncert
 
 The inspected source stores settings, attack history (CSV), error screenshots, account name pictures, and village exports locally beside the app. The game Data Export is read locally from a file copied by the user; no cloud account is required for it. The normal farming/vision path does not upload screenshots or village exports to an AI/OCR service.
 
-The only clear optional outbound services in this area are GitHub release/update checks and Discord webhooks. Discord is disabled unless the user enters a webhook URL. Since the user has excluded Discord notifications, leave the webhook empty and do not port Telegram notifications. Treat `farmbot.toml`, profile TOMLs, village JSON, screenshots and logs as private user data: never commit them to the public source repository or include them in bug reports without reviewing/redacting them. A Discord webhook URL, if ever configured, is a credential and must not be shared.
+The only clear optional outbound services in this area are GitHub release/update checks and Discord webhooks. Discord is disabled unless the user enters a webhook URL. Telegram notifications from CoC_Bot are out of scope. COCFARM's existing optional Discord webhook is separate; do not add Telegram, and leave the Discord integration unchanged until the user explicitly decides whether to use it. Treat `farmbot.toml`, profile TOMLs, village JSON, screenshots and logs as private user data: never commit them to the public source repository or include them in bug reports without reviewing/redacting them. A Discord webhook URL, if ever configured, is a credential and must not be shared.
 
 ### Important migration-specific updater setting
 
@@ -484,3 +484,37 @@ The remaining code-reading audit is complete enough to start implementation plan
 7. Preserve GPL-3.0-or-later and third-party notices in any distributed derivative.
 
 The audit branch still contains documentation only. No COCFARM source tree has been imported, no CoC_Bot source code has been rewritten, and no emulator/live-game tests have been run.
+
+
+## Ninth-pass deep dive: persistence paths and exact Builder Base control insertion points
+
+### Settings and GUI save lifecycle
+
+- The settings model is a hierarchy of dataclasses in `farmbot/config.py`; `load_config()` merges TOML into known fields, applies migrations for removed/renamed settings, then calls `Config.validate()`. Unknown settings are rejected rather than silently accepted.
+- The GUI maps controls to dotted config paths, validates the collected form on every change, and uses a single-shot 400 ms timer to autosave. Invalid values stop the timer, so the GUI does not persist a partially invalid configuration. Lazy-built pages retain pending values so settings on unopened tabs are not lost during a save.
+- `save_config()` preserves comments/layout by editing changed TOML lines where possible, and falls back to a full TOML rewrite when that cannot be done. The final write is a direct `Path.write_text()`, not a temp-file + atomic replace; no cross-process file lock is visible in this module. This is a hardening candidate for crash/power-loss safety, not proof of an existing data-loss incident.
+- The GUI's current Builder Base page already has an **Attacking** tab, with controls for corner, hero, troop timing, abilities, speed and second-base behavior. A global enable/disable switch belongs at the top of this tab, rather than in the Home Village search settings.
+
+### Account, farm and history persistence
+
+- Account profile files are saved as TOML, with a companion player-name picture and optional village export. Profile names are sanitized for Windows-invalid filename characters; collisions are handled case-insensitively. Account switching uses image similarity thresholds and deliberately refuses to switch when the match is ambiguous.
+- Each emulator farm has its own `farmbot.toml`, attack CSV, and error-screen folder. The list of farms selected to start is stored separately in `instances/picked.json`. Account profiles and templates are shared. Removing a farm preserves its folder under a `removed-<n>` name.
+- Attack history is append-only CSV, with a header created for a new file. Readers skip malformed rows, and the GUI calculates daily totals and per-hour loot from the records. No explicit file lock is present in the history writer; per-farm history separation reduces ordinary contention, but shared/custom history paths should be tested.
+- Profile TOML, profile images, village exports, `picked.json`, storage snapshots and logs are runtime data. They must remain outside Git and must not be copied into release artifacts or public diagnostics without deliberate redaction.
+
+### Updater data-preservation check
+
+The installer preserves a fixed set of root-level names (settings, history, logs, screenshots, update state and templates) and overlays files present in the new release. The current profile and multi-farm directories are runtime-created beside the application and are not part of the packaged program tree. Keep that separation explicit: if a future release ever ships root-level `profiles/` or `instances/`, add them to the installer's preservation rules and test an update with existing accounts/farms before publishing. The customized build must also replace or disable the upstream `BilinP/COCFARM` update repository default before self-update is enabled.
+
+### Exact implementation seam: independent Builder Base attack toggle
+
+The smallest native parity change is `builder.attack_enabled`:
+1. Add a boolean field to `BuilderConfig` in `farmbot/config.py`, defaulting to `true` to preserve current behavior.
+2. Add it to `farmbot.example.toml` and the GUI's existing Builder Base → Attacking tab, above the deployment controls. Use the existing typed binding/validation path; no new API or central task-exclusion service is needed.
+3. In `Bot.builder_cycle()`, keep the existing navigation, account check, resource collection, Clock Tower/cart work, upgrades and walls. After those maintenance jobs, skip only the battle path when the switch is off; run the existing no-battle cleanup so selected objects/zoom are restored, and do not increment attack counters or write a fake attack record.
+4. Confirm the scheduler's return-value and checkpoint semantics before choosing the skip return path. Add tests for both enabled (identical current behavior) and disabled (maintenance still runs, no battle starts, counters/history unchanged), including Clan Games behavior if a Builder Base challenge is active.
+5. Leave Home Village attack behavior unchanged. Do not add donated-troop exclusion, slot-range limits, priority randomization, emulator suspension or host-awake behavior in this same patch; those remain separate optional decisions.
+
+### Updated status
+
+The GUI, settings model, profile/farm storage, attack history and updater code-reading pass is complete. No COCFARM source code has been imported or modified by this audit update, and no emulator/live-game validation has been performed. The next implementation step is to build the migration branch's regression-test scaffold and implement the isolated Builder Base attack toggle only after checking scheduler semantics and the active Clan Games path.
