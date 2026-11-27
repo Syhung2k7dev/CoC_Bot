@@ -135,3 +135,28 @@ The inspected COCFARM main tree has no committed `tests/` directory, although th
 4. Finish detailed module review of attack/deployment, upgrades, scheduler, device recovery, multi-instance lifecycle, persistence and GUI.
 5. Build regression tests around real screenshots and synthetic cases; then run bounded emulator validation.
 6. Only after those checks, begin feature integration and cleanup on the user's own migration branch. Do not edit upstream COCFARM.
+
+
+## Additional feature differences found in attack controls
+
+The default CoC_Bot config has two controls that are not represented one-to-one in the inspected COCFARM config/form:
+- `EXCLUDE_CLAN_TROOPS`: CoC_Bot can skip cards it classifies as donated Clan Castle troops during Home attacks. COCFARM's `armybar.py` classifies troop/spell/single/siege cards and its attack loop deploys troop cards; no equivalent user-facing skip-donated-troops switch was found. COCFARM does have separate Clan Castle lure logic for star-focused attacks, which is not the same control.
+- `ATTACK_SLOT_RANGE`: CoC_Bot can limit deployment to a configured range of troop-bar slots and scroll the bar to continue scanning. No corresponding slot-range control was found in COCFARM. COCFARM's deployment loop is more sophisticated in other respects: it reads troop counts again, checks whether units actually deployed, retries rejected points, and can fall back to fixed deployment lines.
+
+These are real CoC_Bot-only configuration features found in code, but their practical importance is optional. If retained, implement them as native COCFARM attack settings, with safe defaults preserving current COCFARM behavior (deploy all eligible cards; do not silently exclude donated troops).
+
+## Attack automation comparison
+
+- COCFARM has much richer deployment strategy settings: side selection, spread vs loot-oriented deployment, waves, troop/wave pacing, siege use, super troop boosts, hero abilities by delay/health, hero walks, Spirit Fox timing, spell selection/placement, Earthquake paths, funneling, star-focused deployment, league bonus farming, early battle exit conditions, and optional human-like deployment rhythms.
+- CoC_Bot's attack controls are simpler: global troop deployment timing, selected troop-card slot range, and optional exclusion of donated Clan Castle troops. Its attack path uses screenshot/template detection, card-edge profiling and batch deployment; after attacks it closes/restarts the game app to complete the battle.
+- COCFARM also has game-update handling: its bot detects the game's Play Store "new version" window and invokes the game-update path. CoC_Bot README mentions automatic game app updates, but no matching implementation was confirmed in the inspected source files yet; keep this item marked for follow-up rather than asserting parity.
+- COCFARM's `maintain_only` setting is a Home Village no-attack mode: `Bot.cycle()` still runs village maintenance and pre-farming war/ranked jobs, then skips the normal Home attack. It does not provide an equivalent independent Builder Base attack-off switch: `builder_cycle()` proceeds to `builder.attack()` after its maintenance/upgrades unless the round is diverted/stopped for another reason. CoC_Bot explicitly has both `ATTACK_HOME_BASE` and `ATTACK_BUILDER_BASE`. This is a concrete migration gap for users who want Builder Base upgrades/collection without Builder attacks.
+
+## Current migration candidates (not yet implemented)
+
+Priority candidates, based on actual differences rather than copying CoC_Bot wholesale:
+1. Add `builder.attack_enabled` to COCFARM's config, form model, GUI, example TOML, validation and builder cycle. Default `true` to preserve current behavior.
+2. Consider an explicit `home.attack_enabled` switch instead of relying only on `search.maintain_only`, if a clearer paired control is preferred.
+3. Consider `attack.exclude_clan_troops` and `attack.slot_start/slot_end` as optional controls only if the user wants those CoC_Bot behaviors. Defaults must preserve COCFARM's current all-card behavior.
+4. Consider an optional priority master-switch that selects randomly when disabled; do not replace COCFARM's richer ordered allow-lists.
+5. Assess PR #39's BlueStacks-only concurrency cap separately; its limitations must be visible in the GUI.
