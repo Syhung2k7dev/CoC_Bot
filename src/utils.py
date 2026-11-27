@@ -290,7 +290,9 @@ def get_vocab():
     return data
 
 def get_vocab_in_categories(categories):
-    vocab = Cache_Manager.get("vocab", get_vocab())
+    vocab = Cache_Manager.get("vocab")
+    if vocab is None:
+        vocab = get_vocab()
     if isinstance(categories, str):
         categories = [categories]
     out = []
