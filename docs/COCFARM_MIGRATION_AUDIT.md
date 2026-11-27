@@ -621,3 +621,19 @@ Recommendation: do not port its Gemini integration, placeholder loot logic, fixe
 ### Next implementation gate
 
 Before importing or adapting any code, compare COCFARM's existing calibration/capture/OCR/recovery implementation against the NX findings and add tests around the existing interfaces. Then implement the Builder Base attack toggle only after deciding the Clan Games exception and scheduler behavior. No code from these three repositories has been copied into the project.
+
+
+### Eleventh-pass comparison: the reference vision code versus COCFARM's existing engine
+
+A direct inspection of COCFARM's `farmbot/vision.py`, `farmbot/text.py`, `farmbot/game.py`, `farmbot/screens.py`, `farmbot/device.py` and `farmbot/geometry.py` changes the integration recommendation:
+
+- COCFARM already has a substantial OpenCV template-matching engine, including multi-template directories, confidence scores, overlapping-hit suppression, coarse-to-fine matching, grayscale prefiltering, adaptive scale selection and cached half-size screenshots.
+- `farmbot/game.py` normalizes screenshots to a reference height, estimates UI scale from anchor templates, and verifies the selected scale before using it. This is more sophisticated than simply applying fixed normalized ROIs and color thresholds.
+- `farmbot/text.py` already performs local glyph-based numeric recognition: it segments bright glyphs, handles joined digits and grouping, and classifies them against locally captured templates. It is not dependent on a remote OCR API.
+- `farmbot/screens.py` already provides a centralized screen state machine covering home village, Builder Base, battle, results, popups, event chest/reward screens, Clan Capital, war, login, maintenance and unknown states. Its `settle()` routine tries to return to a known village and raises explicit errors when it cannot.
+- `farmbot/device.py` provides a device protocol and ADB-based emulator access, including timeouts and typed device errors, rather than binding the core to a single Windows window-message mechanism.
+- `farmbot/geometry.py` already supports edge-relative rectangles and scaling.
+
+Conclusion: NX-ClashClient's calibration and recovery concepts are useful references, but COCFARM's current vision, glyph reading, scale detection and screen recovery are already more deeply integrated and in several respects more advanced. Do not replace them with NX's fixed-pixel/color-ROI implementation or its PrintWindow/PostMessage backend. The best next work is to add regression tests and improve observability/confidence around COCFARM's own existing engine. A calibration wizard should only be considered if actual user testing identifies a template-capture or setup pain point that the existing `farmbot crop` workflow does not solve.
+
+The tracker and AI-bot findings remain unchanged: tracker-style export/progress/timer models are optional product extensions; Gemini and other external AI/OCR are out of scope; raw-coordinate attack playback is not a replacement for the existing state-driven engine.
