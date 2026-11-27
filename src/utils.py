@@ -1207,6 +1207,7 @@ class LDPlayer_Manager(_Emulator_Manager):
 
         candidates = [
             Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "LDPlayer" / "LDPlayer9" / "ldconsole.exe",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "LDPlayer" / "LDPlayer9" / "ldconsole.exe",
             Path(r"C:\LDPlayer\LDPlayer9\ldconsole.exe"),
             Path(r"C:\leidian\LDPlayer9\ldconsole.exe"),
             Path(r"D:\LDPlayer\LDPlayer9\ldconsole.exe"),
