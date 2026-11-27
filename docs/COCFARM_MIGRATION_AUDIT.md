@@ -525,3 +525,99 @@ The GUI, settings model, profile/farm storage, attack history and updater code-r
 `Bot.run()` treats a cycle returning `False` as a maintenance/no-attack round and waits at least `IDLE_WAIT`; it does not increment the attack count itself. The Builder Base cycle currently increments its own attack counters only after `builder.attack()` returns. Therefore the disabled path must return `False`, call the existing no-battle cleanup, and avoid the post-battle accounting/history callbacks.
 
 One important interaction remains to be specified in the implementation: `_games_building()` makes the scheduler select Builder Base while a Builder Base Clan Games challenge is active, independently of the normal farming mode. A simple early return inside `builder_cycle()` would leave that special route repeatedly selecting Builder Base without making progress. The implementation must define whether `builder.attack_enabled = false` also suppresses Builder Base Clan Games battles (and makes the scheduler resume ordinary village work), or whether Clan Games is an intentional exception. Do not ship a partial gate that creates a maintenance loop.
+
+
+## Tenth-pass research: three additional reference repositories
+
+Research scope: public default-branch trees, READMEs, and representative implementation files were inspected for:
+- `Killersparrow1/clash-Trackers` (Android/Kotlin village progress and event tracker)
+- `N1xUser/NX-ClashClient` (Windows/Python screen automation, calibration, OCR and attack orchestration)
+- `DFanso/coc-attack-bot` (Python attack recording/playback and optional AI base analysis)
+
+This was a source review, not a dependency installation, execution, security audit, or live-game test.
+
+### 1. clash-Trackers — best reference for game-data and progress modelling
+
+Useful ideas:
+- A pure parsing layer separated from Android/UI code. `ExportParser.kt` validates the export root, player tag and timestamp, tolerates unknown JSON keys, and converts Home Village and Builder Base entries into typed jobs.
+- A well-separated domain model for upgrade steps, resources, timers, boost modifiers, builder/lab/pet categories, and Builder Base / Star Laboratory.
+- `RoadToMax.kt` models per-item level steps, resource costs, Town Hall limits, multiple copies, hero sequential-upgrade constraints, walls and ore costs.
+- Boosts are explicit time intervals with category applicability and stacking rules, rather than scattered timer adjustments.
+- Event data and static game data use a cache/fallback model. Downloaded data is parsed and validated before it replaces the currently working copy; bundled data remains available offline.
+- The weekly GitHub Action regenerates game data from ClashKingAssets, checks for suspicious regressions, and opens a reviewable PR only when data changes.
+- The project has a broad unit-test suite around parsing, boosts, events, multi-account import, timers and progress calculations.
+- README documents data sources, local storage, fallbacks, privacy boundaries and diagnostics unusually clearly.
+
+Limits for this project:
+- It is an Android app, not a desktop automation engine. Its Kotlin/Compose UI, Android widgets, notifications, Shizuku and Android accessibility companion are not direct fits for the current desktop-only COCFARM application.
+- Its strongest contribution is domain modelling and data-pipeline design, not attack execution.
+- The repository has an MIT license. Any direct reuse still requires retaining its copyright/license notice and checking the exact files/assets being reused.
+
+Recommendation: adopt the architectural patterns, not the Android application. If progress-planning or game-data freshness becomes a confirmed product requirement, create a Python domain layer with typed export parsing, boost intervals, validated cached game data and offline fallback. Do not add the tracker as a second app or add cloud tracking services by default.
+
+### 2. NX-ClashClient — best reference for local vision, calibration and recovery
+
+Useful ideas:
+- Relative ROI coordinates in `config/rois.json`, converted to absolute pixels from each captured frame. This is more adaptable to window-size changes than fixed absolute pixel coordinates.
+- An interactive calibration utility that lets the operator define screen regions visually and saves them to configuration. This is a strong idea for a local desktop bot with varying emulator/window dimensions.
+- Vision helpers are separated from capture and orchestration: ROI crop, image preprocessing, color masks and screen-state checks are implemented in `src/vision/detection.py`.
+- Multiple OCR engines are supported (Tesseract and optional RapidOCR), with specialized preprocessing and parsers for resource numbers, builder counts and upgrade lists.
+- The recovery module centralizes detection of known states and recovery actions instead of duplicating navigation fixes in each task.
+- The code exposes debug images and OCR previews through dedicated UI controllers, which is useful for diagnosing false detections.
+- A state-oriented adapter attempts to separate the bot orchestration layer from direct Tkinter widget access.
+
+Risks and shortcomings observed:
+- Some detection logic relies on fixed sample pixels and hand-tuned color thresholds; it can be brittle when game art, scaling, anti-aliasing or themes change.
+- Several OCR paths swallow exceptions and return fallback values such as zero or "?/?". Treating an OCR failure as a real zero can cause incorrect decisions. COCFARM should preserve confidence/unknown/error states and refuse consequential actions when readings are uncertain.
+- The state manager writes JSON directly and uses a shallow copy for returned nested state; this is not a robust persistence/concurrency pattern to copy.
+- The state wrapper reaches into UI internals and controller functions, so the separation is incomplete.
+- The capture implementation is Windows-specific. It uses PrintWindow/PostMessage and catches broad exceptions; compatibility and input delivery need explicit validation rather than assuming these calls always work.
+- The attack module contains broad automated deployment/fallback behavior. It should not be copied wholesale or treated as validated strategy.
+- No repository LICENSE file was present in the inspected default-branch tree. Do not copy code into CoC_Bot unless the author clarifies a compatible license.
+
+Recommendation: highest priority is to borrow the ROI calibration workflow, confidence-aware multi-engine OCR design, state classification, and centralized recovery *concepts*. First compare them against COCFARM's existing capture/OCR pipeline to avoid duplicating working capabilities. Do not replace COCFARM's current capture backend merely because NX uses a different Windows input method.
+
+### 3. coc-attack-bot — useful product concepts, weak implementation to reuse
+
+Potentially useful concepts:
+- User-recorded attack sessions as named, selectable profiles.
+- A separation between screen capture, coordinate mapping, recording/playback, orchestration, logging and configuration.
+- Attack-session metadata and playback history could inspire a local strategy library, if a future manual/assisted mode is explicitly wanted.
+
+Important issues:
+- `AIAnalyzer` sends screenshots to Google's Gemini API. This conflicts with the user's explicit decision not to use external AI/OCR services and must not be integrated.
+- The analyzer asks a generative model to estimate exact loot and base properties from screenshots. These are consequential numeric readings and should instead come from local OCR plus deterministic validation.
+- The non-AI loot-check path in `auto_attacker.py` currently contains a placeholder that marks each configured resource as good; it is not a real OCR implementation.
+- The attack loop uses fixed waits (including a three-minute battle wait) and assumes a successful return-home click; this is weaker than state-driven completion/recovery.
+- Recording raw mouse coordinates and replaying them can be resolution/window-layout dependent. A safer design would store normalized coordinates with a validated screen profile and require state checks before playback.
+- The loop's emergency stop and thread lifecycle need more rigorous cancellation and exception handling before they could be considered production quality.
+- No repository LICENSE file was present in the inspected default-branch tree. Do not copy code unless a compatible license is established.
+
+Recommendation: do not port its Gemini integration, placeholder loot logic, fixed-delay attack flow or raw-coordinate playback engine. Keep only the product idea of named/manual strategy profiles as a possible future feature; COCFARM's existing battle implementation remains the baseline.
+
+### Cross-repository comparison and integration decision
+
+| Area | Best reference | Decision for COCFARM |
+|---|---|---|
+| Local ROI calibration | NX-ClashClient | High-value concept; compare against existing COCFARM calibration before implementing |
+| OCR engine fallback | NX-ClashClient | Evaluate local RapidOCR/Tesseract alternatives; confidence and unknown values are mandatory |
+| State detection and recovery | NX-ClashClient | Add a centralized, testable state/recovery layer only where COCFARM has gaps |
+| Upgrade/progress domain model | clash-Trackers | Reuse modelling ideas if progress planning is added; not Android UI/code |
+| Boost/timer calculations | clash-Trackers | Strong reference for explicit intervals, stacking and deterministic tests |
+| Dynamic game-data pipeline | clash-Trackers | Good optional improvement; validate source schema and keep bundled fallback |
+| Attack strategy recording | coc-attack-bot | Product concept only; do not reuse raw coordinate playback without redesign |
+| External generative AI | coc-attack-bot | Explicitly rejected; no Gemini or remote OCR/vision service |
+| Automated deployment | NX-ClashClient / coc-attack-bot | Do not replace COCFARM's battle engine based on repository claims; require deterministic tests and controlled validation |
+
+### Updated project decisions
+
+1. COCFARM remains the sole runtime foundation; no second bot or parallel UI is being introduced.
+2. No Telegram, Web Dashboard, iPhone Shortcut, Gemini, external OCR or other remote AI service.
+3. Keep vision/OCR local. OCR must distinguish `valid value`, `unknown`, and `failed`; do not silently convert recognition failures to zero.
+4. Prioritize a comparative audit of COCFARM's existing ROI/calibration, capture, OCR and screen-state code before adding a new vision dependency.
+5. Consider tracker-style village-export parsing, boost modelling and game-data validation as separate optional modules, not blockers for the core farming loop.
+6. Respect upstream licensing. clash-Trackers is MIT; the inspected NX-ClashClient and coc-attack-bot default-branch trees did not expose a LICENSE file, so their code is reference-only pending explicit licensing clarification.
+
+### Next implementation gate
+
+Before importing or adapting any code, compare COCFARM's existing calibration/capture/OCR/recovery implementation against the NX findings and add tests around the existing interfaces. Then implement the Builder Base attack toggle only after deciding the Clan Games exception and scheduler behavior. No code from these three repositories has been copied into the project.
