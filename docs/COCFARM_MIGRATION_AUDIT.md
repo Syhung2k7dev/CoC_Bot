@@ -530,9 +530,9 @@ One important interaction remains to be specified in the implementation: `_games
 ## Tenth-pass research: three additional reference repositories
 
 Research scope: public default-branch trees, READMEs, and representative implementation files were inspected for:
-- `Killersparrow1/clash-Trackers` (Android/Kotlin village progress and event tracker)
-- `N1xUser/NX-ClashClient` (Windows/Python screen automation, calibration, OCR and attack orchestration)
-- `DFanso/coc-attack-bot` (Python attack recording/playback and optional AI base analysis)
+- [`Killersparrow1/clash-Trackers`](https://github.com/Killersparrow1/clash-Trackers) (Android/Kotlin village progress and event tracker)
+- [`N1xUser/NX-ClashClient`](https://github.com/N1xUser/NX-ClashClient) (Windows/Python screen automation, calibration, OCR and attack orchestration)
+- [`DFanso/coc-attack-bot`](https://github.com/DFanso/coc-attack-bot) (Python attack recording/playback and optional AI base analysis)
 
 This was a source review, not a dependency installation, execution, security audit, or live-game test.
 
@@ -741,9 +741,9 @@ Recommendation: inspect its retry/failure classification and UI-thread communica
 
 ### 7. Lower-value or unsuitable findings
 
-- `jatizon/clash-of-clans-bot`: behavior-tree architecture is a useful general design pattern, but the inspected implementation is a small prototype with simple nodes and no evidence it improves on COCFARM's existing state machine and scheduler. Do not migrate it.
-- `Statscell/clash-of-clans-data`: MIT, but the inspected dataset dates from 2021 and is less suitable than the newer structured dataset above.
-- `Somat-1/coc_bot`: its official-API war tracker demonstrates participation reports and historical analytics, but the repository describes itself as a personal project and no clear reusable license was established. Prefer the licensed API client if official API functionality is later required.
+- [`jatizon/clash-of-clans-bot`](https://github.com/jatizon/clash-of-clans-bot): behavior-tree architecture is a useful general design pattern, but the inspected implementation is a small prototype with simple nodes and no evidence it improves on COCFARM's existing state machine and scheduler. Do not migrate it.
+- [`Statscell/clash-of-clans-data`](https://github.com/Statscell/clash-of-clans-data): MIT, but the inspected dataset dates from 2021 and is less suitable than the newer structured dataset above.
+- [`Somat-1/coc_bot`](https://github.com/Somat-1/coc_bot): its official-API war tracker demonstrates participation reports and historical analytics, but the repository describes itself as a personal project and no clear reusable license was established. Prefer the licensed API client if official API functionality is later required.
 - Repositories built around raw coordinate playback, brittle fixed waits, external Gemini/OCR services, or event-specific hardcoding remain out of scope.
 
 ### Consolidated recommendation from this pass
@@ -881,10 +881,10 @@ Recommendation: use only as a reference for unknown-screen handling, recovery bu
 
 ### 5. Additional lower-priority repositories
 
-- `Mohiuddin-Fida/Clash-of-Clans-Bot` (MIT): basic PyAutoGUI/OpenCV image matching and broad multi-scale search. The inspected implementation uses full-screen desktop screenshots and direct PyAutoGUI clicks, has minimal state modelling, and the repository includes generated executable/build/bytecode artifacts. No clear advantage over COCFARM.
-- `ko9ma7/clash-of-clans-farm-bot` (MIT): advertises multi-account farming and targeted building/Lab upgrade automation, but depends on narrow LDPlayer resolutions, image templates, hard-coded coordinates and manually maintained priority lists. Useful only as a small reference for configuration ideas; not a migration candidate.
-- `Kushal-Raptor-X/coc-equipment-planner`: static hero-equipment/ore planner with budget and affordability queue ideas. No `LICENSE` file found; also includes deployment, analytics and ad setup that are not needed for the local bot. Reference-only.
-- `jaredfiacco2/ClashOfClans_API`: historical official API ETL pipeline built around GCP, Cloud Scheduler, BigQuery and dashboards. It does not help with private village state or screen automation and conflicts with the local-only scope.
+- [`Mohiuddin-Fida/Clash-of-Clans-Bot`](https://github.com/Mohiuddin-Fida/Clash-of-Clans-Bot) (MIT): basic PyAutoGUI/OpenCV image matching and broad multi-scale search. The inspected implementation uses full-screen desktop screenshots and direct PyAutoGUI clicks, has minimal state modelling, and the repository includes generated executable/build/bytecode artifacts. No clear advantage over COCFARM.
+- [`ko9ma7/clash-of-clans-farm-bot`](https://github.com/ko9ma7/clash-of-clans-farm-bot) (MIT): advertises multi-account farming and targeted building/Lab upgrade automation, but depends on narrow LDPlayer resolutions, image templates, hard-coded coordinates and manually maintained priority lists. Its README clone command points to a different owner (`ryanchandra1/clash-of-clans-farm-bot`), so verify provenance before following setup instructions. Useful only as a small reference for configuration ideas; not a migration candidate.
+- [`Kushal-Raptor-X/coc-equipment-planner`](https://github.com/Kushal-Raptor-X/coc-equipment-planner) (default branch `master`): static hero-equipment/ore planner with budget and affordability queue ideas. No `LICENSE` file found; also includes deployment, analytics and ad setup that are not needed for the local bot. Reference-only; do not copy its source or assets without a license.
+- [`jaredfiacco2/ClashOfClans_API`](https://github.com/jaredfiacco2/ClashOfClans_API): historical official API ETL pipeline built around GCP, Cloud Scheduler, BigQuery and dashboards. It does not help with private village state or screen automation and conflicts with the local-only scope. No `LICENSE` file was found. Its tracked tree contains `CloudFunction/gcp-service-account-auth-key.json`; treat this as a potential exposed credential, do not download/run/reuse it, and do not copy any secret material.
 
 ### Updated project decisions from the user
 
@@ -901,3 +901,66 @@ These decisions supersede any conflicting earlier proposals in this document:
 3. Build the optional boost/timer domain model using independently validated rules and unit tests; enable it only when the user turns it on.
 4. Continue using COCFARM's current vision/OCR and improve confidence/failure reporting rather than adding another vision stack.
 5. No source code from the repositories in this pass has been imported. This update records research and design decisions only.
+
+
+---
+
+## Repository link index — reopen research sources
+
+This index is intentionally link-heavy so each researched project can be reopened without searching chat history. Links point to canonical GitHub repositories; source-file links point to the files inspected where applicable. License status below reflects the repository files inspected during this audit, not a guarantee about third-party assets or later commits.
+
+### Core runtime and primary references
+
+| Repository | License status | Why it was researched |
+|---|---|---|
+| [BilinP/COCFARM](https://github.com/BilinP/COCFARM) | GPL family; verify exact upstream LICENSE before redistribution | Sole bot runtime and migration base |
+| [Leixien/pixelchief](https://github.com/Leixien/pixelchief) | MIT | Upgrade menu scanning, Maxer/Rusher policies, live action verification |
+| [staticmooniq/RaidR](https://github.com/staticmooniq/RaidR) | MIT | Strong live-upgrade safety and test patterns |
+| [watari09/clash-planner](https://github.com/watari09/clash-planner) | No LICENSE found | Boost timers, magic-item ranking, upgrade planning |
+| [memehammad/clash-timers](https://github.com/memehammad/clash-timers) | GPL-3.0 | Timer/boost interval modelling |
+| [mateobaricevic/coc-rush-helper](https://github.com/mateobaricevic/coc-rush-helper) | No LICENSE found | Export parser, rush planning, data validation tests |
+| [chiefpansancolt/clash-of-clans-data](https://github.com/chiefpansancolt/clash-of-clans-data) | MIT | Versioned structured game data |
+| [Xayz-X/ClashOfClans](https://github.com/Xayz-X/ClashOfClans) | No clear license established in this audit | Game asset extraction research; use only if structured data lacks a needed field |
+| [tonybenoy/cocapi](https://github.com/tonybenoy/cocapi) | GPL-3.0 | Official API client, caching/retry and typed API models |
+| [anugrhaswi/Coc-Auto-Farm](https://github.com/anugrhaswi/Coc-Auto-Farm) | MIT | Worker lifecycle, recovery, calibration and logging ideas |
+
+### Vision, attack automation, and older bot references
+
+| Repository | License status | Why it was researched |
+|---|---|---|
+| [N1xUser/NX-ClashClient](https://github.com/N1xUser/NX-ClashClient) | No license found | OCR, calibration, screenshot/state recovery reference |
+| [DFanso/coc-attack-bot](https://github.com/DFanso/coc-attack-bot) | No license found | Attack recording/playback and optional remote-AI analysis |
+| [Mohiuddin-Fida/Clash-of-Clans-Bot](https://github.com/Mohiuddin-Fida/Clash-of-Clans-Bot) | MIT | Basic PyAutoGUI/OpenCV farming automation |
+| [ko9ma7/clash-of-clans-farm-bot](https://github.com/ko9ma7/clash-of-clans-farm-bot) | MIT | LDPlayer/ADB multi-account farming and upgrade templates |
+| [Dzakiudin/coc-deepfarm](https://github.com/Dzakiudin/coc-deepfarm) | MIT | Modular CV/AI architecture and recovery patterns |
+| [samperez10/coc-auto](https://github.com/samperez10/coc-auto) | No LICENSE found | Unknown-screen handling and recovery limits |
+| [jatizon/clash-of-clans-bot](https://github.com/jatizon/clash-of-clans-bot) | No clear license established in this audit | Behavior-tree prototype |
+| [peenjeee/coc-auto](https://github.com/peenjeee/coc-auto) | License status not established in this audit | Related project name surfaced in coc-auto README; distinct repository, not assumed to be the same source |
+| [Statscell/clash-of-clans-data](https://github.com/Statscell/clash-of-clans-data) | MIT | Older game-data dataset; appears stale relative to newer data sources |
+| [Somat-1/coc_bot](https://github.com/Somat-1/coc_bot) | No clear reusable license established | Official API-based war tracking |
+
+### Data/API and specialized planning
+
+| Repository | License status | Why it was researched |
+|---|---|---|
+| [Kushal-Raptor-X/coc-equipment-planner](https://github.com/Kushal-Raptor-X/coc-equipment-planner) | No LICENSE found; default branch `master` | Hero equipment and ore-budget planner |
+| [jaredfiacco2/ClashOfClans_API](https://github.com/jaredfiacco2/ClashOfClans_API) | No LICENSE found | Historical official API + GCP ETL/reporting pipeline |
+
+### Direct source-file bookmarks
+
+- [RaidR upgrade menu parser](https://github.com/staticmooniq/RaidR/blob/main/app/core/upgrade_menu.py)
+- [RaidR upgrade policy](https://github.com/staticmooniq/RaidR/blob/main/app/core/upgrade_policy.py)
+- [RaidR upgrade executor](https://github.com/staticmooniq/RaidR/blob/main/app/core/upgrader.py)
+- [RaidR live upgrade tests](https://github.com/staticmooniq/RaidR/blob/main/tests/test_upgrade_reads.py)
+- [clash-planner boost calculations](https://github.com/watari09/clash-planner/blob/main/src/boosts.js)
+- [clash-planner magic-item logic](https://github.com/watari09/clash-planner/blob/main/src/magic.js)
+- [clash-planner boost tests](https://github.com/watari09/clash-planner/blob/main/test/boosts.test.js)
+- [Mohiuddin bot main implementation](https://github.com/Mohiuddin-Fida/Clash-of-Clans-Bot/blob/main/Bot/Bot.py)
+- [ko9ma7 farm/upgrade implementation](https://github.com/ko9ma7/clash-of-clans-farm-bot/blob/main/code/bot_farm_auto_v4.py)
+- [Equipment planner application logic](https://github.com/Kushal-Raptor-X/coc-equipment-planner/blob/master/app.js)
+- [Equipment planner data/readme](https://github.com/Kushal-Raptor-X/coc-equipment-planner/blob/master/README.md)
+- [ClashOfClans_API helper functions](https://github.com/jaredfiacco2/ClashOfClans_API/blob/main/apiHelpers.py)
+- [ClashOfClans_API example pipeline](https://github.com/jaredfiacco2/ClashOfClans_API/blob/main/main.py)
+
+Security note: the `jaredfiacco2/ClashOfClans_API` repository tree includes a file named `CloudFunction/gcp-service-account-auth-key.json`. The audit did not fetch or reproduce its contents. Treat it as potentially sensitive and never use it as a credential source. A repository owner should verify whether it contains a real key and revoke/rotate that key if it was exposed.
+
