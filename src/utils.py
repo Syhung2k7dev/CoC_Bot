@@ -736,10 +736,8 @@ class Disk_Cache(collections.UserDict):
         self.load_cache()
         Exit_Handler.register(self.save_cache)
     
-    def __setitem__(self, key, value):
+    def _schedule_save(self):
         from datetime import datetime, timedelta
-        super().__setitem__(key, value)
-        self._dirty_keys.add(key)
         Scheduler.add_job(
             self.save_cache,
             trigger="date",
@@ -748,6 +746,11 @@ class Disk_Cache(collections.UserDict):
             replace_existing=True
         )
 
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._dirty_keys.add(key)
+        self._schedule_save()
+
     def setdefault(self, key, default=None):
         # Nested dictionaries are mutated in-place by callers, so mark the
         # containing key dirty even when it already exists.
@@ -755,6 +758,7 @@ class Disk_Cache(collections.UserDict):
             self[key] = default
         else:
             self._dirty_keys.add(key)
+            self._schedule_save()
         return self.data[key]
 
     def load_cache(self):
@@ -1187,6 +1191,7 @@ class LDPlayer_Manager(_Emulator_Manager):
 
     @classproperty
     def manager_path(cls):
+        import os
         configured_path = getattr(configs, "LDPLAYER_BIN_PATH", "")
         if configured_path:
             path = Path(configured_path)
@@ -1210,13 +1215,6 @@ class LDPlayer_Manager(_Emulator_Manager):
         for candidate in candidates:
             if candidate.exists():
                 cls._manager_path = str(candidate)
-                return cls._manager_path
-
-        if sys.platform == "win32":
-            drive_root = Path(os.environ.get("SystemDrive", "C:") + "\\")
-            found = file_search(drive_root, "ldconsole.exe", ["ldplayer", "leidian"])
-            if found is not None:
-                cls._manager_path = found
                 return cls._manager_path
 
         raise FileNotFoundError(
