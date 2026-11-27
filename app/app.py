@@ -370,8 +370,14 @@ def handle_instances():
             }), 400
 
         with STATE_LOCK:
-            if instance_id not in instances:
+            instance = instances.get(instance_id)
+            if instance is None:
                 instances[instance_id] = Instance(instance_id)
+                update_known_instances()
+            elif instance.run_status != "":
+                # A fresh registration means this instance is starting again.
+                # Preserve pause time, exclusions, and notifications.
+                instance.run_status = ""
                 update_known_instances()
         return jsonify({"status": "success", "id": instance_id})
 
