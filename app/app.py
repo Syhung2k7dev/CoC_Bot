@@ -1,10 +1,10 @@
 import os
 import time
 import json
+import re
 from pathlib import Path
 from collections import deque
 from flask import Flask, render_template, jsonify, abort, request
-from flask_cors import CORS
 
 PATH = Path(__file__).parent
 CACHE_PATH = PATH / "data" / "cache.json"
@@ -12,7 +12,11 @@ CACHE_PATH.parent.mkdir(exist_ok=True)
 NOTIFICATION_CACHE_SIZE = 3
 
 app = Flask(__name__)
-CORS(app)
+
+INSTANCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+def valid_instance_id(value):
+    return isinstance(value, str) and INSTANCE_ID_PATTERN.fullmatch(value) is not None
 
 class Instance:
     def __init__(
@@ -120,8 +124,16 @@ def handle_end_time(id):
     instance = instances.get(id)
     if not instance: abort(404)
     if request.method == "POST":
-        data = request.json.get("time", 0)
-        instance.end_time = int(data) * 60 + time.time()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"status": "error", "message": "Expected a JSON object"}), 400
+        try:
+            minutes = int(payload.get("time", 0))
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "Invalid time"}), 400
+        if not 0 <= minutes <= 10080:
+            return jsonify({"status": "error", "message": "Time must be between 0 and 10080 minutes"}), 400
+        instance.end_time = minutes * 60 + time.time()
         update_known_instances()
     
     return {"end_time": instance.end_time}
@@ -138,8 +150,13 @@ def handle_status(id):
     instance = instances.get(id)
     if not instance: abort(404)
     if request.method == "POST":
-        data = request.json
-        instance.run_status = data.get("status", "")
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"status": "error", "message": "Expected a JSON object"}), 400
+        status = data.get("status", "")
+        if not isinstance(status, (str, int, float)) or (isinstance(status, str) and len(status) > 64):
+            return jsonify({"status": "error", "message": "Invalid status"}), 400
+        instance.run_status = status
         update_known_instances()
 
     return {"status": instance.run_status}
@@ -150,39 +167,49 @@ def handle_exclude(id):
     instance = instances.get(id)
     if not instance: abort(404)
     if request.method == "POST":
-        data = request.json
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"status": "error", "message": "Expected a JSON object"}), 400
         action = data.get("action", "")
         item = data.get("item", "")
+        if action not in {"add", "remove"} or not isinstance(item, str) or not re.fullmatch(r"[a-z0-9_]{1,64}", item):
+            return jsonify({"status": "error", "message": "Invalid exclusion"}), 400
         if action == "add":
             instance.exclusions.add(item)
-        elif action == "remove":
+        else:
             instance.exclusions.discard(item)
     return {"exclusions": sorted(list(instance.exclusions))}
 
 @app.route("/instances/<id>/notify", methods=["POST"])
 def handle_notify(id):
     global instances
-    data = request.json
+    data = request.get_json(silent=True)
     instance = instances.get(id)
     if not instance: abort(404)
+    if data is None or len(str(data)) > 1000:
+        return jsonify({"status": "error", "message": "Invalid notification"}), 400
     instance.add_notification(data)
     return jsonify({"status": "success", "received": data})
 
 @app.route("/instances/<id>/notifications", methods=["POST"])
 def handle_notifications(id):
-    n = request.json
+    n = request.get_json(silent=True)
     instance = instances.get(id)
     if not instance: abort(404)
+    if not isinstance(n, int) or not 1 <= n <= NOTIFICATION_CACHE_SIZE:
+        return jsonify({"status": "error", "message": "Invalid notification limit"}), 400
     return jsonify(instance.get_notifications(n))
 
 @app.route("/instances", methods=["GET", "POST"])
 def handle_instances():
     global instances
     if request.method == "POST":
-        data = request.json
-        id = str(data.get("id", "")).strip()
-        if id == "":
-            return jsonify({"status": "error", "message": "Invalid ID"}), 400
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"status": "error", "message": "Expected a JSON object"}), 400
+        id = data.get("id", "")
+        if not valid_instance_id(id):
+            return jsonify({"status": "error", "message": "ID must contain 1-64 letters, numbers, underscores or hyphens"}), 400
         if id not in instances:
             instances[id] = Instance(id)
             update_known_instances()
@@ -206,4 +233,4 @@ def add_cache_headers(response):
 
 get_known_instances()
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=1234, debug=True)
+    app.run(host="127.0.0.1", port=1234, debug=False)
