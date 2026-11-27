@@ -518,3 +518,10 @@ The smallest native parity change is `builder.attack_enabled`:
 ### Updated status
 
 The GUI, settings model, profile/farm storage, attack history and updater code-reading pass is complete. No COCFARM source code has been imported or modified by this audit update, and no emulator/live-game validation has been performed. The next implementation step is to build the migration branch's regression-test scaffold and implement the isolated Builder Base attack toggle only after checking scheduler semantics and the active Clan Games path.
+
+
+### Scheduler semantics verified after the ninth-pass review
+
+`Bot.run()` treats a cycle returning `False` as a maintenance/no-attack round and waits at least `IDLE_WAIT`; it does not increment the attack count itself. The Builder Base cycle currently increments its own attack counters only after `builder.attack()` returns. Therefore the disabled path must return `False`, call the existing no-battle cleanup, and avoid the post-battle accounting/history callbacks.
+
+One important interaction remains to be specified in the implementation: `_games_building()` makes the scheduler select Builder Base while a Builder Base Clan Games challenge is active, independently of the normal farming mode. A simple early return inside `builder_cycle()` would leave that special route repeatedly selecting Builder Base without making progress. The implementation must define whether `builder.attack_enabled = false` also suppresses Builder Base Clan Games battles (and makes the scheduler resume ordinary village work), or whether Clan Games is an intentional exception. Do not ship a partial gate that creates a maintenance loop.
