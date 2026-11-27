@@ -430,3 +430,57 @@ The checksum is not a publisher signature. It proves the downloaded bytes match 
 
 No major GUI feature from CoC_Bot needs to be transplanted. COCFARM already has a native desktop interface, profile management, per-account settings, history, onboarding and emulator management. The only GUI work justified so far is exposing the small accepted control gaps (especially Builder Base attack enable/disable) and removing/hiding unused Discord settings only if doing so does not make future upstream merges harder. Prefer leaving the unused Discord integration dormant rather than deleting large chunks of upstream code.
 
+
+
+## Eighth-pass deep dive: build pipeline, dependency supply chain, tests and release security
+
+### Build and packaging
+
+COCFARM is packaged as a Windows PyInstaller `--onedir` application, then zipped as `COCFARM-windows.zip`. The build bundles the GUI, OpenCV, assets, emulator helpers, local OCR PowerShell scripts, profiles shipped as examples, third-party notices and license texts. The runtime folder is intentionally portable: settings, account profiles, history, screenshots and logs live beside it. The build script refuses to overwrite a `dist/COCFARM` folder that already contains farm data, which helps prevent accidental loss during a rebuild.
+
+The project supports Python 3.11+ in `pyproject.toml`; CI currently builds on Python 3.12 and Windows. Dependencies are declared as minimum versions rather than exact pins, and there is no dependency lockfile or hash-locked requirements set. This makes fresh builds less reproducible: a later compatible dependency release may change behavior or packaging.
+
+### CI workflow finding: excessive write permission during PR builds
+
+The only workflow, `.github/workflows/windows-exe.yml`, sets workflow-wide `permissions: contents: write`. The same job checks out the branch/PR source, installs dependencies, executes `packaging/build.py`, and runs the built executable's self-test. That means untrusted code from a same-repository pull request can run in a job whose token is configured for write access; checkout also normally persists its Git credentials unless disabled. GitHub restricts tokens for fork-originated PRs, but same-repository PRs are a different trust boundary.
+
+Before using this workflow in the user's repository, split it:
+- Build/test jobs should use `permissions: contents: read` (or no write permission) and `actions/checkout` with `persist-credentials: false`.
+- A separate release-publish job should run only for trusted version tags or a manually approved release path and receive `contents: write`.
+- Pin third-party Actions to reviewed full commit SHAs rather than movable version tags, and review updates deliberately.
+- Never run a release-publishing job against untrusted pull-request code.
+
+This is a concrete CI hardening item, not evidence that the current local bot leaks user data.
+
+### Test coverage actually present in main
+
+The recursive tree of the audited main commit contains no committed `tests/` directory. Although `pyproject.toml` configures pytest and the development dependencies include pytest/pytest-xdist, the current Windows workflow does not run pytest. It builds the executable and invokes `--self-test`, which opens every GUI page, checks that required shipped templates exist, and imports OpenCV.
+
+That self-test is useful for packaging and missing-resource regressions, but it does not exercise attack deployment, donation, OCR recognition, upgrade decisions, scheduler edge cases, updater rollback, multi-instance claims or profile switching. Several open PRs add synthetic tests, but they are not present in main. A migration should establish a real portable test suite before changing core behavior.
+
+### Release integrity and trust
+
+The updater validates the downloaded asset's declared size and SHA-256 digest when GitHub's release metadata supplies them. It does not verify a publisher signature or a signed provenance attestation. The current release having a SHA-256 digest is good, but the digest is delivered by the same GitHub repository/release trust domain as the asset. A compromised repository maintainer account or release pipeline could replace both.
+
+The Windows executable is not Authenticode-signed in the inspected workflow. README therefore warns that Windows may show an unknown publisher. This is a user-trust/reputation limitation, not by itself proof of malicious code. For the user's own releases, consider signing only if a trusted code-signing certificate is available; do not download third-party certificates or disable Windows security checks to suppress warnings.
+
+### Licensing and redistribution
+
+The audited COCFARM main declares GPL-3.0-or-later and includes third-party notices and license texts for its packaged dependencies. CoC_Bot's previous MIT license does not override the license of the imported COCFARM code. If the user distributes a modified executable/source bundle, retain the upstream copyright/license notices, provide the corresponding GPL source and comply with GPL-3.0-or-later obligations. Private local modification is a different situation from public redistribution; this should be revisited before publishing a binary or sharing it with others.
+
+### Data and diagnostic handling
+
+COCFARM writes normal logs, crash traces, per-account history and screenshots locally. The diagnostic bundle can include platform/Python/game/emulator facts and log context; review the exact report before posting it publicly. Account names, profile images, village exports, emulator serials/ports, paths and webhook URLs should be treated as potentially sensitive. Add a safe redaction pass before any bug-report export is attached to a public GitHub issue.
+
+### Final source-audit conclusion
+
+The remaining code-reading audit is complete enough to start implementation planning. COCFARM is still the right base, but the migration must not simply copy its tree and publish it unchanged. The minimum pre-release engineering tasks are:
+1. Change or disable the upstream update repository default before the customized build can self-update.
+2. Add the independent Builder Base attack enable/disable control and its tests.
+3. Review and selectively integrate PR #38 and #40 for attack-bar/Builder Base deployment correctness.
+4. Add focused tests for donations, spells, Hero Walk, profiles, config migration and updater extraction/rollback.
+5. Harden the GitHub Actions permissions and release job separation.
+6. Keep user settings/profiles/screenshots/logs out of Git and add diagnostic redaction.
+7. Preserve GPL-3.0-or-later and third-party notices in any distributed derivative.
+
+The audit branch still contains documentation only. No COCFARM source tree has been imported, no CoC_Bot source code has been rewritten, and no emulator/live-game tests have been run.
