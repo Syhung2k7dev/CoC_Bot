@@ -91,7 +91,7 @@ def gui_launch(args):
             if p and p.is_alive():
                 p.terminate()
                 p.join()
-                mark_instance_stopped(id)
+                mark_instance_stopped(id, args.gui_port)
 
 def launch():
     import utils
