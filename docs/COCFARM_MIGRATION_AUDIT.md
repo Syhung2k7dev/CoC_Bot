@@ -160,3 +160,13 @@ Priority candidates, based on actual differences rather than copying CoC_Bot who
 3. Consider `attack.exclude_clan_troops` and `attack.slot_start/slot_end` as optional controls only if the user wants those CoC_Bot behaviors. Defaults must preserve COCFARM's current all-card behavior.
 4. Consider an optional priority master-switch that selects randomly when disabled; do not replace COCFARM's richer ordered allow-lists.
 5. Assess PR #39's BlueStacks-only concurrency cap separately; its limitations must be visible in the GUI.
+
+
+## Other CoC_Bot-only operational options
+
+The CoC_Bot template config also contains:
+- `SUSPEND_EMULATOR_ON_IDLE`: optional emulator process suspension during idle periods to reduce resource use. COCFARM has `human.offline_breaks`, which closes the Clash of Clans app during breaks/outside playing hours, but no equivalent emulator-suspend setting was found. These are not the same behavior.
+- `DISABLE_DEVICE_SLEEP`: keeps the host PC awake while the bot runs (Windows/macOS-specific implementation). No matching host-sleep prevention setting was found in COCFARM's config/form. This may be useful for long unattended runs but should be an opt-in feature with clear battery/power implications.
+- macOS desktop/runtime support. COCFARM's current GUI, Windows OCR PowerShell scripts, scheduled-task wake-up and emulator adapters are Windows-oriented. This is not a practical loss if the target machine is Windows.
+
+COCFARM already has automatic emulator launch, emulator standardization, automatic game restart and emulator recovery, plus an optional Windows Task Scheduler wake-up between upgrades. CoC_Bot's emulator suspend feature should be considered separately; do not assume COCFARM automatically shuts down or suspends the emulator when idle. COCFARM's offline-break setting closes the game app, not the emulator VM.
