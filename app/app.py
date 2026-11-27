@@ -174,10 +174,17 @@ def handle_exclude(id):
         item = data.get("item", "")
         if action not in {"add", "remove"} or not isinstance(item, str) or not re.fullmatch(r"[a-z0-9_]{1,64}", item):
             return jsonify({"status": "error", "message": "Invalid exclusion"}), 400
-        if action == "add":
+        changed = False
+        if action == "add" and item not in instance.exclusions:
             instance.exclusions.add(item)
-        else:
-            instance.exclusions.discard(item)
+            changed = True
+        elif action == "remove" and item in instance.exclusions:
+            instance.exclusions.remove(item)
+            changed = True
+
+        if changed:
+            update_known_instances()
+
     return {"exclusions": sorted(list(instance.exclusions))}
 
 @app.route("/instances/<id>/notify", methods=["POST"])
