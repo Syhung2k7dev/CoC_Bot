@@ -728,14 +728,16 @@ class Scheduler:
 
 class Disk_Cache(collections.UserDict):
     def __init__(self, path):
+        import threading
         super().__init__()
         self.path = path
+        self._dirty_keys = set()
+        self._cache_lock = threading.RLock()
         self.load_cache()
         Exit_Handler.register(self.save_cache)
     
-    def __setitem__(self, key, value):
+    def _schedule_save(self):
         from datetime import datetime, timedelta
-        super().__setitem__(key, value)
         Scheduler.add_job(
             self.save_cache,
             trigger="date",
@@ -744,17 +746,83 @@ class Disk_Cache(collections.UserDict):
             replace_existing=True
         )
 
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._dirty_keys.add(key)
+        self._schedule_save()
+
+    def setdefault(self, key, default=None):
+        # Nested dictionaries are mutated in-place by callers, so mark the
+        # containing key dirty even when it already exists.
+        if key not in self.data:
+            self[key] = default
+        else:
+            self._dirty_keys.add(key)
+            self._schedule_save()
+        return self.data[key]
+
     def load_cache(self):
-        import json, portalocker
+        import json
         if self.path.exists():
-            with portalocker.Lock(self.path, "r", timeout=5) as f:
-                self.update(json.load(f))
+            with self.path.open("r", encoding="utf-8") as f:
+                cached = json.load(f)
+            if isinstance(cached, dict):
+                self.data.update(cached)
         return self.data
 
     def save_cache(self):
-        import json, portalocker
-        with portalocker.Lock(self.path, "w", timeout=5) as f:
-            json.dump(self.data, f, indent=4)
+        import json, os, tempfile, portalocker
+        with self._cache_lock:
+            dirty_keys = set(self._dirty_keys)
+            if not dirty_keys:
+                return
+
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+            temp_path = None
+            with portalocker.Lock(lock_path, "a", timeout=10):
+                persisted = {}
+                if self.path.exists():
+                    try:
+                        with self.path.open("r", encoding="utf-8") as f:
+                            loaded = json.load(f)
+                        if isinstance(loaded, dict):
+                            persisted = loaded
+                    except (json.JSONDecodeError, OSError):
+                        logger.warning("Cache file could not be read while saving; rebuilding from pending updates.")
+
+                # Merge only keys changed by this process. This prevents one
+                # bot process from overwriting another instance's newer data.
+                for key in dirty_keys:
+                    value = self.data.get(key)
+                    if isinstance(value, dict) and isinstance(persisted.get(key), dict):
+                        merged_value = dict(persisted[key])
+                        merged_value.update(value)
+                        persisted[key] = merged_value
+                    else:
+                        persisted[key] = value
+
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="w",
+                        encoding="utf-8",
+                        dir=self.path.parent,
+                        prefix=f"{self.path.name}.",
+                        suffix=".tmp",
+                        delete=False,
+                    ) as f:
+                        temp_path = f.name
+                        json.dump(persisted, f, indent=4)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(temp_path, self.path)
+                    temp_path = None
+                finally:
+                    if temp_path is not None and os.path.exists(temp_path):
+                        os.unlink(temp_path)
+
+                self.data.update(persisted)
+                self._dirty_keys.difference_update(dirty_keys)
 
 Cache_Manager = Disk_Cache(CACHE_PATH)
 
@@ -1115,7 +1183,169 @@ class MuMu_Manager(_Emulator_Manager):
 
         raise Exception("MuMu failed to stop.")
 
-Emulator_Manager = {"bluestacks": BlueStacks_Manager, "mumu": MuMu_Manager}[getattr(configs, "EMULATOR_TYPE", "bluestacks")]
+class LDPlayer_Manager(_Emulator_Manager):
+    """Manage LDPlayer 9 instances through its supported ldconsole CLI."""
+
+    _index = None
+    _manager_path = None
+
+    @classproperty
+    def manager_path(cls):
+        import os
+        configured_path = getattr(configs, "LDPLAYER_BIN_PATH", "")
+        if configured_path:
+            path = Path(configured_path)
+            if path.is_dir():
+                path = path / "ldconsole.exe"
+            if path.exists():
+                cls._manager_path = str(path)
+                return cls._manager_path
+            raise FileNotFoundError(f"LDPLAYER_BIN_PATH does not exist: {configured_path}")
+
+        if cls._manager_path is not None and Path(cls._manager_path).exists():
+            return cls._manager_path
+
+        candidates = [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "LDPlayer" / "LDPlayer9" / "ldconsole.exe",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "LDPlayer" / "LDPlayer9" / "ldconsole.exe",
+            Path(r"C:\LDPlayer\LDPlayer9\ldconsole.exe"),
+            Path(r"C:\leidian\LDPlayer9\ldconsole.exe"),
+            Path(r"D:\LDPlayer\LDPlayer9\ldconsole.exe"),
+            Path(r"D:\leidian\LDPlayer9\ldconsole.exe"),
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                cls._manager_path = str(candidate)
+                return cls._manager_path
+
+        raise FileNotFoundError(
+            "ldconsole.exe was not found. Set LDPLAYER_BIN_PATH to its full path in configs.py."
+        )
+
+    @classmethod
+    def _run(cls, *args):
+        import subprocess
+        result = subprocess.run(
+            [cls.manager_path, *map(str, args)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"LDPlayer command failed ({result.returncode}): {detail}")
+        return result.stdout.strip()
+
+    @classmethod
+    def _instances(cls):
+        output = cls._run("list2")
+        instances = []
+        for line in output.splitlines():
+            fields = [field.strip() for field in line.split(",")]
+            if len(fields) >= 2 and fields[0].isdigit():
+                instances.append(fields)
+        return instances
+
+    @classmethod
+    def _instance_info(cls, instance_id=None):
+        instance_id = INSTANCE_ID if instance_id is None else instance_id
+        matches = [row for row in cls._instances() if row[1] == instance_id]
+        if not matches:
+            raise RuntimeError(
+                f"LDPlayer instance '{instance_id}' was not found. "
+                "Rename it in LDPlayer Multi-player to match an ID in INSTANCE_IDS."
+            )
+        if len(matches) > 1:
+            raise RuntimeError(f"Multiple LDPlayer instances are named '{instance_id}'. Use unique instance names.")
+        return matches[0]
+
+    @classproperty
+    def instance_index(cls):
+        row = cls._instance_info()
+        cls._index = int(row[0])
+        return cls._index
+
+    @classproperty
+    def adb_port(cls):
+        # LDPlayer 9 assigns each instance an ADB port at 5555 + (index * 2).
+        return str(5555 + 2 * cls.instance_index)
+
+    @classproperty
+    def pid(cls):
+        row = cls._instance_info()
+        if len(row) > 5 and row[5].isdigit() and int(row[5]) > 0:
+            cls._pid = int(row[5])
+        else:
+            cls._pid = None
+        return cls._pid
+
+    @classmethod
+    def check(cls, instance_id=None):
+        if sys.platform != "win32":
+            return False
+        row = cls._instance_info(instance_id)
+        # list2 field 4 is LDPlayer's documented Android-started flag.
+        return len(row) > 4 and row[4].lower() in ("1", "true", "running")
+
+    @classmethod
+    def start(cls, instance_id=None, timeout=90):
+        import time
+        if sys.platform != "win32":
+            raise RuntimeError("LDPlayer is supported by this manager on Windows only.")
+
+        cls.wake()
+        if cls.check(instance_id):
+            logger.info("LDPlayer instance already running.")
+            return
+
+        index = cls._instance_info(instance_id)[0]
+        cls._run("launch", "--index", index)
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if cls.check(instance_id):
+                logger.info(f"LDPlayer instance '{instance_id or INSTANCE_ID}' started.")
+                return
+            time.sleep(0.5)
+        raise RuntimeError(f"LDPlayer instance '{instance_id or INSTANCE_ID}' failed to start.")
+
+    @classmethod
+    def stop(cls, timeout=90):
+        import time
+        if sys.platform != "win32":
+            return
+
+        cls.wake()
+        if not cls.check():
+            logger.info("LDPlayer instance stopped.")
+            return
+
+        index = cls.instance_index
+        cls._run("quit", "--index", index)
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if not cls.check():
+                logger.info("LDPlayer instance stopped.")
+                return
+            time.sleep(0.5)
+        raise RuntimeError("LDPlayer instance failed to stop.")
+
+
+_emulator_type = getattr(configs, "EMULATOR_TYPE", "bluestacks").lower()
+_emulator_managers = {
+    "bluestacks": BlueStacks_Manager,
+    "mumu": MuMu_Manager,
+    "ldplayer": LDPlayer_Manager,
+}
+if _emulator_type not in _emulator_managers:
+    raise ValueError(
+        f"Unsupported EMULATOR_TYPE '{_emulator_type}'. "
+        f"Choose one of: {', '.join(_emulator_managers)}."
+    )
+Emulator_Manager = _emulator_managers[_emulator_type]
 
 class Task_Handler:
     
@@ -1383,39 +1613,78 @@ class ADB_Manager:
         import subprocess, adbutils, os, shutil
         import uiautomator2 as u2
         from pyminitouch import MNTDevice
-        
-        if addr is None: addr = ADB_ADDRESS
-        if ADB_ABS_DIR != "": os.environ["PATH"] = ADB_ABS_DIR + os.pathsep + os.environ["PATH"]
+
+        if addr is None:
+            addr = ADB_ADDRESS
+        if not addr:
+            raise RuntimeError("ADB address is not configured for this emulator instance.")
+
+        if cls.is_connected():
+            return
+
+        if ADB_ABS_DIR != "":
+            os.environ["PATH"] = ADB_ABS_DIR + os.pathsep + os.environ["PATH"]
         adb_executable = shutil.which("adb")
-        if sys.platform == "win32" and getattr(configs, "EMULATOR_TYPE", "bluestacks") == "bluestacks":
+
+        emulator_type = getattr(configs, "EMULATOR_TYPE", "bluestacks").lower()
+        if sys.platform == "win32" and emulator_type == "bluestacks":
             bluestacks_adb = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "BlueStacks_nxt" / "HD-Adb.exe"
-            if bluestacks_adb.exists(): adb_executable = str(bluestacks_adb)
+            if bluestacks_adb.exists():
+                adb_executable = str(bluestacks_adb)
+        elif sys.platform == "win32" and emulator_type == "ldplayer":
+            try:
+                ldplayer_adb = Path(Emulator_Manager.manager_path).with_name("adb.exe")
+                if ldplayer_adb.exists():
+                    adb_executable = str(ldplayer_adb)
+            except (AttributeError, FileNotFoundError):
+                pass
+
         if adb_executable is None:
             raise FileNotFoundError("ADB executable not found. Set ADB_ABS_DIR to its directory.")
         os.environ["ADBUTILS_ADB_PATH"] = adb_executable
+
         import pyminitouch.config
         pyminitouch.config.ADB_EXECUTOR = adb_executable
         import pyminitouch.connection
         pyminitouch.connection._ADB = adb_executable
-        # if cls.is_connected(): return
-        subprocess.run([adb_executable, "start-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        res = adbutils.adb.connect(addr)
-        if "connected" not in res:
-            subprocess.run([adb_executable, "kill-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            raise Exception("Failed to connect to ADB.")
-        devices = []
+
+        # ADB is a shared host service. Never kill its server when one device
+        # connection fails; other emulator instances may be using it.
+        subprocess.run(
+            [adb_executable, "start-server"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=True,
+        )
+        result = adbutils.adb.connect(addr)
+        if "connected" not in str(result).lower():
+            raise RuntimeError(f"Failed to connect to ADB device at {addr}: {result}")
+
+        minitouch_device = None
         try:
-            d1 = adbutils.device(addr)
-            d2 = MNTDevice(addr)
-            d3 = u2.connect(addr)
-            devices = [d1, d2, d3]
-            Exit_Handler.register(d2.stop)
-        except (KeyboardInterrupt, SystemExit): raise
-        except:
-            subprocess.run([adb_executable, "kill-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            raise Exception("Failed to get ADB device.")
-        cls._adbutils_device, cls._minitouch_device, cls._uiautomator_device = devices
-    
+            adbutils_device = adbutils.device(addr)
+            minitouch_device = MNTDevice(addr)
+            uiautomator_device = u2.connect(addr)
+        except (KeyboardInterrupt, SystemExit):
+            if minitouch_device is not None:
+                try:
+                    minitouch_device.stop()
+                except Exception:
+                    pass
+            raise
+        except Exception as e:
+            if minitouch_device is not None:
+                try:
+                    minitouch_device.stop()
+                except Exception:
+                    pass
+            raise RuntimeError(f"Failed to initialize ADB device at {addr}.") from e
+
+        cls._adbutils_device = adbutils_device
+        cls._minitouch_device = minitouch_device
+        cls._uiautomator_device = uiautomator_device
+        Exit_Handler.register(minitouch_device.stop)
     @classmethod
     def connect(cls, timeout=60):
         import time

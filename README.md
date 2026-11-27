@@ -30,8 +30,8 @@
 1. [Android Debug Bridge](https://developer.android.com/tools/releases/platform-tools)
     * Add to system path
         * Verify with: `adb --version`
-2. An Android emulator — either [BlueStacks](https://www.bluestacks.com/) or [MuMu Player](https://www.mumuplayer.com/) (set `EMULATOR_TYPE` accordingly in `configs.py`)
-    * The specs below apply to both emulators:
+2. An Android emulator — [BlueStacks](https://www.bluestacks.com/), [MuMu Player](https://www.mumuplayer.com/), or LDPlayer 9 (set `EMULATOR_TYPE` accordingly in `configs.py`)
+    * The specs below apply to all supported emulators:
         * Device profile: Samsung Galaxy S22 Ultra
         * Display resolution: 1920 x 1080
         * Frame rate: 60 (__NOTE__: Inconsistent touch events at lower fps)
@@ -47,6 +47,13 @@
     * Currently, ONLY supported on Windows
     * In MuMu's multi-instance manager, rename instances to match instance IDs in `configs.py` (same convention as BlueStacks above)
     * The bot controls MuMu through its official `MuMuManager.exe` CLI (found under `<MuMu install dir>/nx_main/MuMuManager.exe`); if it's not auto-detected, set `MUMU_BIN_PATH` in `configs.py`
+
+    __LDPlayer 9:__
+    * Currently, supported on Windows
+    * In LDPlayer's Multi-player manager, rename each instance to match an ID in `INSTANCE_IDS` in `configs.py`
+    * Set `EMULATOR_TYPE = "ldplayer"` in `configs.py`
+    * The bot uses `ldconsole.exe` to identify, launch, and stop each instance. If it is not auto-detected, set `LDPLAYER_BIN_PATH` to the full path of `ldconsole.exe`
+    * LDPlayer's ADB port is selected from its instance index; keep instance names unique so the bot connects to the intended emulator
 
 ## Default Setup Instructions
 1. Install and configure [external dependencies](#dependencies)

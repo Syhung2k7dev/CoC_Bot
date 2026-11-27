@@ -145,7 +145,8 @@ ATTACK_BUILDER_BASE = True # can be overridden on desktop or web app
 ########################
 DEBUG = False
 DISABLE_DEVICE_SLEEP = True
-EMULATOR_TYPE = "bluestacks" # "bluestacks" or "mumu"
+EMULATOR_TYPE = "bluestacks" # "bluestacks", "mumu", or "ldplayer"
+LDPLAYER_BIN_PATH = "" # full path to LDPlayer 9 ldconsole.exe; leave empty for auto-detection
 AUTO_START_EMULATOR = True
 SUSPEND_EMULATOR_ON_IDLE = False # optionally suspend emulator process when idle to cut down on resource usage
 WINDOW_DIMS = (1920, 1080) # width, height
