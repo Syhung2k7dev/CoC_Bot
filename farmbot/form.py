@@ -1,0 +1,411 @@
+"""The GUI's settings model, kept free of tkinter so it can be tested.
+
+Each :class:`Field` maps one control to a dotted config path. Values from
+the window are validated field by field so the GUI can show the error
+next to the control that caused it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from farmbot.human import HABITS
+from farmbot.config import RESOURCES, SIDES, Config, unreachable_minimums, unreachable_note
+
+SIDE_LABELS = {"nw": "Top-left (NW)", "ne": "Top-right (NE)", "sw": "Bottom-left (SW)", "se": "Bottom-right (SE)"}
+
+
+@dataclass(frozen=True)
+class Field:
+    path: str  # e.g. "search.min_gold"
+    kind: str  # amount | int | instance | float | percent | bool | text | sides | resources | hours | units | order | buildings | presets
+    low: float | None = None
+    high: float | None = None
+
+
+FIELDS = [
+    # Search
+    Field("search.min_gold", "amount"),
+    Field("search.min_elixir", "amount"),
+    Field("search.min_dark", "amount"),
+    Field("search.match_any", "bool"),
+    Field("search.max_searches", "int", 1, 1000),
+    Field("search.sound_on_match", "bool"),
+    Field("search.min_own_gold_share", "percent", 0, 100),
+    Field("search.maintain_only", "bool"),
+    # Attack
+    Field("attack.sides", "sides"),
+    Field("attack.placement", "text"),
+    Field("attack.waves", "int", 1, 3),
+    Field("attack.troop_speed", "int", 1, 9),
+    Field("attack.wave_speed", "int", 1, 9),
+    Field("attack.spell_placement", "text"),
+    Field("attack.spells", "text"),
+    Field("attack.spell_spot", "text"),
+    Field("attack.quakes_per_spot", "int", 1, 20),
+    Field("attack.quake_aim", "text"),
+    Field("attack.funnel", "text"),
+    Field("attack.use_siege", "bool"),
+    Field("attack.super_troops", "bool"),
+    Field("attack.hero_abilities", "bool"),
+    Field("attack.hero_ability_delay", "float", 0, 120),
+    Field("attack.ability_health", "percent", 0, 95),
+    Field("attack.ability_max_wait", "float", 5, 180),
+    Field("attack.hero_walk", "text"),
+    Field("attack.walk_time", "float", 5, 120),
+    Field("attack.walk_invisibility_health", "percent", 10, 95),
+    Field("attack.walk_fox", "text"),
+    Field("attack.walk_spear_early", "bool"),
+    Field("attack.speed_up", "bool"),
+    Field("attack.league_bonus", "bool"),
+    Field("attack.league_bonus_damage", "percent", 40, 100),
+    Field("attack.star_bonus", "bool"),
+    Field("attack.end_when_no_loot", "bool"),
+    Field("attack.no_loot_seconds", "float", 3, 180),
+    Field("attack.end_at_loot_share", "percent", 0, 100),
+    Field("ranked.enabled", "bool"),
+    Field("war.enabled", "bool"),
+    Field("war.target", "text"),
+    Field("war.max_stars", "int", 0, 3),
+    Field("redline.enabled", "bool"),
+    Field("zone.enabled", "bool"),
+    # Army & village
+    Field("bot.collect_resources", "bool"),
+    Field("bot.collect_gold", "bool"),
+    Field("bot.collect_elixir", "bool"),
+    Field("bot.collect_dark", "bool"),
+    Field("bot.collect_ice", "bool"),
+    Field("bot.collect_every", "int", 1, 100),
+    Field("bot.collect_loot_cart", "bool"),
+    Field("bot.clear_gravestones", "bool"),
+    Field("bot.use_snacks", "bool"),
+    Field("bot.collect_treasury", "bool"),
+    Field("bot.read_village", "bool"),
+    Field("bot.stop_when_full", "resources"),
+    Field("bot.mode", "text"),
+    Field("bot.theme", "text"),
+    Field("bot.check_updates", "bool"),
+    Field("bot.auto_first", "text"),
+    Field("builder.corner", "text"),
+    Field("builder.use_hero", "bool"),
+    Field("builder.troop_delay", "float", 0, 30),
+    Field("builder.troop_speed", "int", 1, 9),
+    Field("builder.hero_ability", "bool"),
+    Field("builder.hero_ability_after", "float", 0, 120),
+    Field("builder.troop_abilities", "bool"),
+    Field("builder.ability_batch", "int", 1, 10),
+    Field("builder.ability_delay", "float", 0, 60),
+    Field("builder.second_base", "bool"),
+    Field("builder.stage_delay", "float", 0, 30),
+    Field("builder.first_hero", "text"),
+    Field("builder.switch_hero", "bool"),
+    Field("builder.switch_below", "percent", 1, 100),
+    Field("builder.return_home_after", "bool"),
+    Field("builder.speed_up", "bool"),
+    Field("builder.collect_resources", "bool"),
+    Field("builder.collect_minutes", "int", 0, 1440),
+    Field("builder.collect_cart", "bool"),
+    Field("builder.cart_every_min", "int", 1, 100),
+    Field("builder.cart_every_max", "int", 1, 100),
+    Field("builder.walls", "bool"),
+    Field("builder.walls_use", "text"),
+    Field("builder.walls_keep_gold", "percent", 0, 100),
+    Field("builder.walls_keep_elixir", "percent", 0, 100),
+    Field("builder.upgrade", "bool"),
+    Field("builder.upgrade_order", "order"),
+    Field("builder.upgrade_heroes", "bool"),
+    Field("builder.upgrade_lab", "bool"),
+    Field("builder.upgrade_buildings", "bool"),
+    Field("builder.upgrade_first", "text"),
+    Field("builder.upgrade_builders", "int", -1, 10),
+    Field("walls.enabled", "bool"),
+    Field("walls.use", "text"),
+    Field("walls.keep_gold", "percent", 0, 100),
+    Field("walls.keep_elixir", "percent", 0, 100),
+    Field("walls.only_when_full", "bool"),
+    Field("upgrade.enabled", "bool"),
+    Field("upgrade.order", "order"),
+    Field("upgrade.pets", "bool"),
+    Field("upgrade.heroes", "bool"),
+    Field("upgrade.lab", "bool"),
+    Field("upgrade.buildings", "bool"),
+    Field("upgrade.first", "text"),
+    Field("upgrade.only", "buildings"),
+    Field("upgrade.research_only", "research"),
+    Field("upgrade.equipment", "bool"),
+    Field("upgrade.equipment_only", "equipment"),
+    Field("upgrade.start_gold", "amount"),
+    Field("upgrade.start_elixir", "amount"),
+    Field("upgrade.start_dark", "amount"),
+    Field("upgrade.new_buildings", "bool"),
+    Field("upgrade.town_hall", "bool"),
+    Field("upgrade.wait_for_town_hall", "bool"),
+    Field("upgrade.wake_up", "bool"),
+    Field("upgrade.pause_when_idle", "bool"),
+    Field("upgrade.apprentice", "bool"),
+    Field("upgrade.lab_assistant", "bool"),
+    Field("upgrade.builders", "int", -1, 10),
+    # What the storages hold
+    Field("storage.gold", "amount"),
+    Field("storage.elixir", "amount"),
+    Field("storage.dark", "amount"),
+    Field("storage.read", "bool"),
+    Field("storage.builder_gold", "amount"),
+    Field("storage.builder_elixir", "amount"),
+    Field("storage.builder_read", "bool"),
+    # Clan
+    Field("clan.donate", "bool"),
+    Field("clan.donate_main", "units"),
+    Field("clan.donate_siege", "units"),
+    Field("clan.donate_spells", "units"),
+    Field("clan.donate_fill", "bool"),
+    Field("clan.donate_presets", "presets"),
+    Field("clan.request_troops", "bool"),
+    Field("clan.empty_castle", "bool"),
+    Field("capital.raid", "bool"),
+    Field("capital.miner_heal_at", "percent", 10, 95),
+    Field("capital.fortress_heal_at", "percent", 10, 95),
+    Field("capital.district_order", "text"),
+    Field("capital.late_heal", "bool"),
+    Field("capital.heal_lead", "float", 0, 3),
+    Field("capital.spells_near_drop", "bool"),
+    Field("capital.lightning_near_drop", "bool"),
+    Field("clan_games.enabled", "bool"),
+    Field("clan_games.goal", "text"),
+    Field("clan_games.trade_in", "bool"),
+    Field("clan_games.clear_out", "bool"),
+    Field("clan_games.stuck_after", "text"),
+    Field("clan_games.fight_on", "bool"),
+    Field("clan_games.rewards", "bool"),
+    Field("clan.request_every_minutes", "int", 1, 600),
+    # Schedule
+    Field("schedule.enabled", "bool"),
+    Field("schedule.active_hours", "hours"),
+    Field("schedule.daily_attacks_min", "int", 0, 1000),
+    Field("schedule.daily_attacks_max", "int", 0, 1000),
+    Field("schedule.breaks", "bool"),
+    Field("schedule.break_every_min", "int", 1, 500),
+    Field("schedule.break_every_max", "int", 1, 500),
+    Field("schedule.break_minutes_min", "int", 1, 600),
+    Field("schedule.break_minutes_max", "int", 1, 600),
+    Field("schedule.day_off_every", "int", 0, 60),
+    # Like a person
+    Field("human.enabled", "bool"),
+    *(Field(f"human.{h.key}", "bool") for h in HABITS),
+    Field("notify.discord_webhook", "text"),
+    Field("notify.on_storage_full", "bool"),
+    Field("notify.on_stopped", "bool"),
+    Field("notify.on_emulator_restart", "bool"),
+    Field("notify.daily_summary", "bool"),
+    Field("notify.on_raids", "bool"),
+    Field("notify.progress_every", "int", 0, 1000),
+    Field("notify.on_critical_error", "bool"),
+    Field("notify.on_deploy_failed", "bool"),
+    Field("notify.alert_cooldown_minutes", "int", 0, 1440),
+    # Device
+    Field("device.mode", "text"),
+    Field("device.bluestacks_instance", "text"),
+    Field("device.launch_emulator", "bool"),
+    Field("device.enable_adb", "bool"),
+    Field("device.mute", "bool"),
+    Field("device.ldplayer", "text"),
+    Field("device.ldplayer_index", "instance", 1, 100),  # shown from 1, stored from 0 as the emulators count
+    Field("device.mumu_index", "instance", 1, 100),
+    Field("device.serial", "text"),
+    Field("device.adb_path", "text"),
+]
+BY_PATH = {f.path: f for f in FIELDS}
+
+
+def parse_amount(text: str) -> int:
+    """'1 500 000', '1,500,000', '1.5m' or '300k' → int."""
+    cleaned = str(text).strip().lower().replace(",", "").replace(" ", "").replace("_", "")
+    if not cleaned:
+        return 0
+    multiplier = 1
+    if cleaned[-1] in "km":
+        multiplier = 1_000 if cleaned[-1] == "k" else 1_000_000
+        cleaned = cleaned[:-1]
+    try:
+        value = float(cleaned) * multiplier
+    except ValueError:
+        raise ValueError("enter a number, e.g. 500k or 1,500,000") from None
+    if value < 0:
+        raise ValueError("cannot be negative")
+    return int(round(value))
+
+
+def _get(config: Config, path: str) -> Any:
+    section, name = path.split(".")
+    return getattr(getattr(config, section), name)
+
+
+def _set(config: Config, path: str, value: Any) -> None:
+    section, name = path.split(".")
+    setattr(getattr(config, section), name, value)
+
+
+def _display(field: Field, value: Any) -> Any:
+    if field.kind == "amount":
+        if field.path.startswith(("storage.", "upgrade.start_")) and not value:
+            return ""  # not known yet; for upgrades, once full
+        return f"{value:,}"
+    if field.kind in ("sides", "resources", "hours", "units", "order", "buildings", "research",
+                      "equipment"):
+        return list(value)
+    if field.kind == "presets":  # {"13": ["1 Ice Golem", ...]} → {"13": "1 Ice Golem, ..."}
+        return {level: ", ".join(entries) for level, entries in value.items()}
+    if field.kind == "float":
+        return f"{value:g}"
+    if field.kind == "percent":  # stored as a share, shown as 0-100
+        return f"{value * 100:g}"
+    if field.kind == "instance":  # the emulators count from 0, people from 1
+        return value + 1
+    return value
+
+
+def form_values(config: Config) -> dict[str, Any]:
+    """Current config as the values the window shows."""
+    return {f.path: _display(f, _get(config, f.path)) for f in FIELDS}
+
+
+def _parse(field: Field, raw: Any) -> Any:
+    if field.kind == "bool":
+        return bool(raw)
+    if field.kind == "text":
+        return str(raw).strip()
+    if field.kind == "amount":
+        return parse_amount(raw)
+    if field.kind == "sides":
+        sides = [s for s in SIDES if s in raw]
+        if not sides:
+            raise ValueError("pick at least one side")
+        return sides
+    if field.kind == "resources":
+        return [k for k in RESOURCES if k in raw]
+    if field.kind == "units":
+        from farmbot.units import BY_NAME
+
+        return [name for name in dict.fromkeys(raw) if name in BY_NAME]  # in the order given
+    if field.kind == "order":
+        return list(dict.fromkeys(str(k) for k in raw))  # first to last
+    if field.kind in ("buildings", "research", "equipment"):
+        from farmbot.tasks.row_names import PICKS
+
+        return [name for name in dict.fromkeys(raw) if name in PICKS[field.kind]]  # first to last
+    if field.kind == "presets":
+        from farmbot.castle import parse_entry
+
+        out = {}
+        for level, text in raw.items():
+            entries = [e.strip() for e in str(text).split(",") if e.strip()]
+            unknown = [e for e in entries if parse_entry(e) is None]
+            if unknown:
+                raise ValueError(f"level {level}: no unit called '{unknown[0]}' (write it like '2 Valkyrie')")
+            out[str(level)] = entries
+        return out
+    if field.kind == "hours":
+        hours = sorted({int(h) for h in raw})
+        if any(not 0 <= h <= 23 for h in hours):
+            raise ValueError("hours must be 0-23")
+        return hours
+    if field.kind == "percent":
+        raw = str(raw).strip().rstrip("%")
+    try:
+        # Whole numbers may be grouped (1,000); in a decimal a comma could be the point, so it stays an error.
+        value = int(str(raw).strip().replace(",", "").replace(" ", "")) if field.kind in ("int", "instance") \
+            else float(str(raw).strip())
+    except ValueError:
+        raise ValueError("enter a whole number" if field.kind in ("int", "instance") else "enter a number") from None
+    if field.low is not None and value < field.low or field.high is not None and value > field.high:
+        raise ValueError(f"use {field.low:g} to {field.high:g}")
+    if field.kind == "instance":
+        return value - 1
+    return round(value / 100, 4) if field.kind == "percent" else value
+
+
+def validate(form: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    """Parsed values and a message for each invalid field."""
+    values: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for path, raw in form.items():
+        field = BY_PATH.get(path)
+        if field is None:
+            continue
+        try:
+            values[path] = _parse(field, raw)
+        except ValueError as exc:
+            errors[path] = str(exc)
+    if values.get("schedule.daily_attacks_max") and \
+            values.get("schedule.daily_attacks_min", 0) > values["schedule.daily_attacks_max"]:
+        errors["schedule.daily_attacks_max"] = "must be at least the 'from' number (0 to 0 = no limit)"
+    for low, high in (("schedule.break_every_min", "schedule.break_every_max"),
+                      ("schedule.break_minutes_min", "schedule.break_minutes_max")):
+        if values.get(low, 0) > values.get(high, 10**9):
+            errors[high] = "must be at least the 'from' number"
+    if values.get("builder.cart_every_min", 0) > values.get("builder.cart_every_max", 10**9):
+        errors["builder.cart_every_max"] = "must be at least the 'from' number"
+    if values.get("bot.mode") == "auto" and not values.get("bot.stop_when_full", ["gold"]):
+        errors["bot.stop_when_full"] = "pick the storages that make Auto switch to the other village"
+    if values.get("schedule.enabled") and not values.get("schedule.active_hours", [1]):
+        errors["schedule.active_hours"] = "pick at least one hour, or turn the schedule off"
+    return values, errors
+
+
+def apply_form(config: Config, form: dict[str, Any]) -> None:
+    """Copy validated values into ``config`` in place, so a running bot sees
+    them. Raises ``ValueError`` naming the first bad field."""
+    values, errors = validate(form)
+    if errors:
+        path, message = next(iter(errors.items()))
+        raise ValueError(f"{path}: {message}")
+    for path, value in values.items():
+        if path == "device.serial" and not value:
+            continue
+        _set(config, path, value)
+    config.validate()
+
+
+def plan_summary(values: dict[str, Any]) -> str:
+    """One line on what the bot will do with these (validated) settings,
+    for the Dashboard before Start."""
+    def short(amount: int) -> str:
+        return f"{amount / 1_000_000:g}M" if amount >= 1_000_000 else f"{amount // 1_000}k" if amount >= 1_000 \
+            else str(amount)
+
+    village = {"home": "the home village", "builder": "the builder base"}.get(values.get("bot.mode"))
+    if village is None:  # auto
+        first = "builder base" if values.get("bot.auto_first") == "builder" else "home village"
+        village = f"the {first}, then the other once its storages are full"
+    parts = []
+    if values.get("bot.mode") != "builder":
+        if values.get("search.maintain_only"):
+            parts.append("no attacks")
+        else:
+            wants = [f"{short(values[f'search.min_{k}'])} {name}" for k, name in
+                     (("gold", "gold"), ("elixir", "elixir"), ("dark", "dark"))
+                     if values.get(f"search.min_{k}")]
+            joiner = " or " if values.get("search.match_any") else " and "
+            parts.append(f"attacks bases with {joiner.join(wants)}" if wants else "attacks any base")
+        for path, what in (("bot.collect_resources", "collects"), ("walls.enabled", "walls"),
+                           ("upgrade.enabled", "upgrades"), ("clan.donate", "donates"),
+                           ("clan.request_troops", "requests troops"), ("capital.raid", "raids"),
+                           ("clan_games.enabled", "plays the Clan Games")):
+            if values.get(path):
+                parts.append(what)
+    if values.get("schedule.enabled"):
+        parts.append("only in its hours")
+    full = values.get("bot.stop_when_full") or []
+    if full:
+        parts.append("stops when its " + " and ".join(full) + " storages are full")
+    summary = f"Plays {village}: " + ", ".join(parts) + "."
+    if values.get("bot.mode") != "builder" and not values.get("search.maintain_only"):
+        wanted = {k: values.get(f"search.min_{k}", 0) for k in ("gold", "elixir", "dark")}
+        too_high = unreachable_minimums(wanted)
+        # With any one enough, only when none can be met are they all skipped
+        # (a minimum of 0 is always met).
+        if too_high and (not values.get("search.match_any") or len(too_high) == len(wanted)):
+            k, v = next(iter(too_high.items()))
+            summary += " ⚠ " + unreachable_note(k, v, False)
+    return summary + " Press Start (F5)."

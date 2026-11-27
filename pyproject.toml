@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "farmbot"
+version = "1.9.8"
+description = "Clean-room Clash of Clans farming bot for Android emulators (ADB + OpenCV)"
+requires-python = ">=3.11"
+classifiers = ["License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"]
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "PySide6-Fluent-Widgets>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-xdist>=3"]
+
+[project.scripts]
+farmbot = "farmbot.cli:main"
+
+[project.gui-scripts]
+cocfarm = "farmbot.cli:gui_main"  # the GUI without a console window
+
+[tool.setuptools.packages.find]
+include = ["farmbot*"]
+
+[tool.setuptools.package-data]
+farmbot = ["assets/*.png", "profiles/*.toml", "ocr.ps1", "ocr_lines.ps1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# One process per core (pytest-xdist); -n 0 runs them one at a time.
+addopts = "-n auto"

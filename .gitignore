@@ -1,14 +1,49 @@
-.vscode
-.venv
-__pycache__
-.DS_Store
-build
-dist
-debug
+__pycache__/
 *.pyc
-*.spec
-src/cache.json
-src/configs.py
-src/configs_build.py
-scripts/start.sh
-app/data
+*.egg-info/
+.pytest_cache/
+.venv/
+screens/
+farmbot.toml
+attacks.csv
+build/
+dist/
+
+# Game screenshots (show other players): kept locally, never published
+tests/fixtures/*.webp
+docs/*.png
+logs/
+update.json
+_update/
+
+# Not published: tests, docs, third-party samples
+tests/
+docs/
+samples/
+farmbot.log
+
+# Settings per account, with a picture of each player name: kept locally
+/profiles/
+
+# The game's data export of an account's village (its buildings and levels): kept locally
+village.json
+clan_games.json
+*.clan_games.json
+*.village.json
+
+# Which farms are picked on the Farms page: kept locally
+/instances/
+
+# A tool for working on the raids (recording them to replay): kept locally
+farmbot/recorder.py
+
+# Local copies of work-in-progress changes (never pushed)
+*.patch
+
+# Your own Clan Castle, marked in the Bug report tab (personal: never shared)
+templates/redact/
+
+# Working notes on the window overhaul (kept locally, never pushed)
+gui-changes.md
+gui-layout.md
+inv.json

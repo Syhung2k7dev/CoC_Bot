@@ -1,142 +1,201 @@
-<h1 align="center">Clash of Clans Bot</h1>
-<p align="center">
-    <a href="#updated-bot-demo">
-        <img src="media/Cover_Image.png" alt="Cover Image" width="25%">
-    </a>
-    <br>
-    <a href="#latest-bot-demo">Click for Demo Video</a>
-</p>
+# COCFARM
 
-## Automated Features (Both Villages)
-* Resource collection 💰
-* Hero upgrades 👑
-* Building upgrades 🧱
-* Laboratory upgrades 🔬
-* Pet upgrades 🐶
-* Assistant assignment ⏩️
-* Normal attacks ⚔️
-* Full upgrade priority control 🚦
-* Multiple accounts 👥
+> [!NOTE]
+> **Not affiliated with, endorsed by, or connected to Supercell.** Clash of Clans is a trademark of Supercell Oy.
 
-## Quality of Life Features
-* View bot status on desktop or web app 🚦
-* Resume / pause bot execution from desktop or web app ⏯️
-* iPhone shortcut to auto resume / pause bot when CoC is opened by user ⏯️
-* Telegram and web app notifications 🔔
-* Automatic CoC app updates 🔼
-* Automatic emulator instance launch / shutdown 🔌
+<img src="farmbot/assets/cocfarm.png" alt="COCFARM logo" width="96" align="right">
 
-## Dependencies
-1. [Android Debug Bridge](https://developer.android.com/tools/releases/platform-tools)
-    * Add to system path
-        * Verify with: `adb --version`
-2. An Android emulator — [BlueStacks](https://www.bluestacks.com/), [MuMu Player](https://www.mumuplayer.com/), or LDPlayer 9 (set `EMULATOR_TYPE` accordingly in `configs.py`)
-    * The specs below apply to all supported emulators:
-        * Device profile: Samsung Galaxy S22 Ultra
-        * Display resolution: 1920 x 1080
-        * Frame rate: 60 (__NOTE__: Inconsistent touch events at lower fps)
-        * Install Clash of Clans from Google Play
-            * Default troop deployment size
-            * Standard or XL scenery
+**A Clash of Clans farming bot for Windows.** It plays the game for you on an
+Android emulator (BlueStacks, LDPlayer or MuMu Player): it attacks, collects your loot and
+looks after your village, in **both the home village and the builder base**.
 
-    __BlueStacks:__
-    * Enable Android Debug Bridge in "Advanced" settings
-    * In Multi-Instance Manager, rename instances to match instance IDs in `configs.py` (the default ID is main, see steps 3 and 6 in [Custom Setup Instructions](#custom-setup-instructions-recommended) for more details)
+[![windows-exe](https://github.com/BilinP/COCFARM/actions/workflows/windows-exe.yml/badge.svg)](https://github.com/BilinP/COCFARM/actions/workflows/windows-exe.yml)
 
-    __MuMu Player:__
-    * Currently, ONLY supported on Windows
-    * In MuMu's multi-instance manager, rename instances to match instance IDs in `configs.py` (same convention as BlueStacks above)
-    * The bot controls MuMu through its official `MuMuManager.exe` CLI (found under `<MuMu install dir>/nx_main/MuMuManager.exe`); if it's not auto-detected, set `MUMU_BIN_PATH` in `configs.py`
+**[⬇ Download the latest release](https://github.com/BilinP/COCFARM/releases/latest)** · [All releases](https://github.com/BilinP/COCFARM/releases)
 
-    __LDPlayer 9:__
-    * Currently, supported on Windows
-    * In LDPlayer's Multi-player manager, rename each instance to match an ID in `INSTANCE_IDS` in `configs.py`
-    * Set `EMULATOR_TYPE = "ldplayer"` in `configs.py`
-    * The bot uses `ldconsole.exe` to identify, launch, and stop each instance. If it is not auto-detected, set `LDPLAYER_BIN_PATH` to the full path of `ldconsole.exe`
-    * LDPlayer's ADB port is selected from its instance index; keep instance names unique so the bot connects to the intended emulator
+> [!WARNING]
+> **Using this bot can get your Clash of Clans account banned.** Botting breaks
+> Supercell's Terms of Service, and Supercell bans accounts it catches,
+> temporarily or for good. Only use it on an account you're willing to lose.
 
-## Default Setup Instructions
-1. Install and configure [external dependencies](#dependencies)
+![The COCFARM Dashboard](readme/dashboard.png)
 
-1. Download the [latest release](https://github.com/m24842/CoC_Bot/releases/latest) for your OS
-    > __Note__: Prebuilt releases are minimally configured and only support standard features. To set up the bot with custom configurations, see [Custom Setup Instructions](#custom-setup-instructions-recommended).
+## What it does
 
-    > __Note__: Prebuilt releases generally will not have the most up-to-date features and may contain unpatched bugs. To stay up to date, it is suggested to run from source.
+**Farming**
+- ⚔️ **Farms the home village.** It finds bases with the loot you want, sends out every troop, hero and spell in your army, fires the heroes' abilities, and comes home. It can activate your **super troops** before a battle, paying with dark elixir.
+- 🎯 **Deploys right at the red line.** Troops land just outside the red line, or just outside the buildings where it can't be seen, not out at the map's edge.
+- 🏰 **Fits your Town Hall.** The loot a base must have follows suggested amounts for your Town Hall, rising as it goes up (see them all in a table, or type your own). What you haven't unlocked yet is greyed out, and your village (from the game's Data Export) is a click away.
+- 📦 **Knows when to stop.** A battle ends early once your storages are full, and the loot cart is left alone while they are.
+- 🛠️ **Farms the builder base.** It plays both stages of builder battles with your hero and troops (an all **Night Witch** army works best), fires the hero's ability when it's charged, and uses the **Clock Tower**'s free boost.
+- 🔄 **Switches between villages for you.** With **Auto switch** on, it farms one village until its storages are full, then moves to the other.
+- 🏰 **Raids the Clan Capital (beta).** On Raid Weekends it uses every raid attack with the capital army you set in the game. Super Miners get Healing spells just ahead of where they're digging, and Lightning goes on the defences in their way.
 
-    * Releases are built for MacOS (Apple Silicon) and Windows only
-    * GUI and CLI versions are available with each release
+**Looking after your village**
+- 💰 **Collects everything.** Resources, the loot cart, and in the builder base the gem mine and the elixir cart.
+- 🧱 **Spends your spare loot (if you turn it on).** It upgrades as many walls as the spare covers, all at once. When a storage is full it starts the dearest upgrades it can pay for: buildings and heroes in the order you pick, research and pets. It also **upgrades the Town Hall**, **builds new buildings** as they unlock, and clears gravestones. This works in both villages and never uses gems.
+- 🤝 **Helps your clan.** It fills donation requests with troops and spells suited to each requester's Clan Castle level, and requests troops for you.
 
-1. MacOS users must allow the app/binary to run by going to "Settings > Privacy & Security" and clicking "Open Anyways"
+**Running it**
+- 👥 **Farms several accounts at once (beta).** Switch on a farm for each emulator instance (LDPlayer, MuMu or BlueStacks, mixed as you like), all from one page. Each account keeps its own settings, picked by the player name in the game, and one account is never farmed twice. Farms sharing a port are moved off it by themselves.
+- ⏰ **Plays when you want.** You pick the hours, a daily attack range and random breaks, so it plays more like a person.
+- 🛟 **Recovers by itself.** If the game gets stuck it restarts it, and if the emulator stops answering it restarts that too. A farm that stops anyway **starts again by itself** after a wait, maintenance breaks are waited out, and an extra (builder base, Clan Capital, upgrades) that keeps failing is paused instead of stopping the farm. A game that isn't in English is named rather than reported as stuck.
+- 📱 **Sets up the emulator the same way every time.** Screen size, CPU, memory, frame rate and phone model are set by itself, ads over the game are switched off, and the emulator is muted (with a switch to turn it off).
+- 🧑 **Plays like a person.** Switch on habits one by one (taps around a button, varied pauses and swipes, a battle rhythm of its own) and see in a table how much time each adds.
+- 📊 **Tracks your loot.** The History page shows every attack and what you gained.
+- 🔔 **Sends Discord alerts.** You'll hear when storage is full, when it stops (with a summary of the run), and get a daily summary.
+- ⬆️ **Updates itself** from GitHub releases, in one click, and shows what's new afterwards. It also adds itself to the Start menu, and to Installed apps so you can uninstall it.
 
-## Custom Setup Instructions (Recommended)
-1. Install and configure [external dependencies](#dependencies)
+## Get started
 
-1. Install python dependencies with [setup.py](setup.py)
+1. **Install an emulator** ([BlueStacks 5](https://www.bluestacks.com/),
+   [LDPlayer 9 or 14](https://www.ldplayer.net/), or [MuMu Player](https://www.mumuplayer.com/))
+   and sign in to Clash of Clans in it. **Set the game to English** (Settings → Language): COCFARM
+   finds its buttons by their English words. Windows itself can be in any language.
+2. **Download COCFARM.** Get `COCFARM-windows.zip` from the
+   [latest release](https://github.com/BilinP/COCFARM/releases/latest) and unzip it anywhere.
+3. **Open `COCFARM.exe`.** If Windows warns you, click **More info → Run anyway**.
+4. **Follow the short tour.** The first time, COCFARM walks you through picking your emulator,
+   checking it can see the game, and choosing what to farm. It sets the emulator up by itself.
+   (Updating never shows the tour again; the emulator settings are under **Advanced → Emulator**.)
+5. **Press Start** (or F5). That's it.
 
-1. Enter user configurations in `configs.py`
-    > ❗️ __Important__: [setup.py](setup.py) creates `configs.py` from [configs.template.py](src/configs.template.py)
+**Updating:** COCFARM tells you when a new version is out. Press **Update now**, then
+**Restart and update** once it's downloaded. Your settings, history and pictures are kept.
+You can also check by hand under **Advanced → App → Updates**.
 
-    > ❗️ __Important__: By default, all capabilities are enabled. Many configurations can be overridden in real time if using the desktop or web app.
+### Tested emulators
 
-    > __Note__: If using priority upgrades, instructions for defining upgrade priorities can be found in `configs.py`.
+Home village and builder base attacks were tested live on each of these (COCFARM 0.6.0):
 
-    > __Note__: To configure Telegram notifications, first set up a [Telegram bot](https://marketplace.creatio.com/sites/marketplace/files/app-guide/Instructions._Telegram_bot_1.pdf?utm_source=chatgpt.com) and send `/start`. Enter the API token generated during the setup process for `TELEGRAM_BOT_TOKEN`.
+| Emulator | Version | Android |
+|---|---|---|
+| BlueStacks 5 | 5.22.110.1028 (Pie 64-bit) | 9 |
+| LDPlayer 9 | 9.5.25.0 | 9 |
+| LDPlayer 14 | 14.0.29.2 | 14 |
+| MuMu Player | 6.8.9.0 (COCFARM 0.9.0) | 15 |
 
-    > __Note__: If local OCR is too slow, you can offload it to [groq](https://console.groq.com). Just make an account and set up an API key to use for `GROQ_API_KEY` in `configs.py`. The free tier will hit the token rate limit after a while after which the bot will fallback to local OCR.
+Other versions will likely work too. If yours doesn't, please
+[report it](https://github.com/BilinP/COCFARM/issues/new/choose) with the emulator and its version.
+BlueStacks, LDPlayer and MuMu Player can all run side by side.
+COCFARM sets the emulator's screen (860 × 672), CPU cores, memory, frame rate and phone model (a OnePlus 10 Pro) by itself,
+and mutes it; you can turn that off under **Advanced**.
 
-1. Start web app: `python app/app.py`
-    > 💡 __Tip__: It is recommended to host the web app on [pythonanywhere](https://www.pythonanywhere.com) using the provided [wsgi.py](app/wsgi.py) template and [this tutorial](https://medium.com/@cssjhnnamae/how-to-deploy-a-python-app-on-pythonanywhere-cf399f4bbc01). Free accounts can host a single web app for an extendable period of 1 month (the bot can automatically extend hosting). If you want to enable automatic pythonanywhere hosting extension, enter your pythonanywhere username and passowrd into `PA_USERNAME` and `PA_PASSWORD` respectively in `configs.py`.
-    
-    > ❗️ __Important__: If hosting from a personal device, configure port forwarding as necessary
-    
-    * Each bot instance can be accessed at `WEB_APP_URL/<instance_id>` (the default instance ID is `main`)
-    * View a demo of the web app [here](#web-app-demo)
+### Several accounts at once (beta)
 
-1. Setup iPhone shortcut:
-    > ❗️ __Important__: iOS will terminate long running shortcuts after about 30-60 mins (there's no reported limit so times may vary). To ensure the bot is paused for longer, it is suggested to set the shortcut to "run after confirmation" so that the pause duration can be set arbitrarily high through the web app when desired.
+Each farm plays one emulator instance and keeps to the account signed in there. Farms can mix
+emulators: LDPlayer, MuMu Player and BlueStacks side by side. All of them run from the **Farms** page, which
+opens from the account at the bottom left of the side bar:
 
-    > __Note__: An [older version](<shortcut/CoC Bot Auto Pause Old.shortcut>) of the shortcut is provided that does not require Scriptable, but is incapable of handling request errors
-    
-    * Download [Scriptable](https://apps.apple.com/us/app/scriptable/id1405459188) and create a new script named "CoC Bot Script" with the contents of [CoC_Bot_Script.js](<shortcut/Scriptable.js>)
-    * Open the [provided shortcut](<shortcut/CoC Bot Auto Pause.shortcut>)
-    * Enter your `WEB_APP_URL` into the `url` item of the Dictionary
-    * Add your instance ids to the `ids` array in the Dictionary (main is added by default)
-    * Create an Automation task that runs when CoC opens and is set to run immediately
+1. **Farms** lists every emulator instance on this PC. Switch one on and it becomes a farm. To make another
+   instance, press **New instance** and pick an emulator. On LDPlayer and MuMu, it copies the last farm's
+   instance, game included. On BlueStacks, COCFARM opens the **Multi-Instance Manager**: clone an instance
+   there, and COCFARM adds the farm once it appears. The bin on an instance's row deletes it from the
+   emulator, after asking (an emulator's first instance is never deleted). Instances of other emulators show
+   under **Other emulator instances**, ready to switch on.
+2. The copy is signed in to the same account. Open it once and switch to another account with Supercell ID.
+   It stays on that account from then on.
+3. Pick the farms to run with their switches, then press **Start**. **Stop** switches them all off, each after
+   its current step. While farms run, a switch starts or stops its own farm too. A farm finds its account's
+   profile by the player name it sees.
 
-1. Start the bot: `python src/main.py`
-    > ❗️ __Important__: By default, the bot is configured to start and stop its emulator instance automatically. If this behavior is undesired or causing issues, just set `AUTO_START_EMULATOR = False` in `configs.py`
+**View** shows a farm in the main window. Every farm keeps farming while another one is shown. The small
+square button opens a farm in a window of its own; closing that window switches the farm off. Each instance
+needs about 2 CPU cores and 4 GB of memory.
 
-    > __Note__: On MacOS, if `DISABLE_DEVICE_SLEEP = True` in `configs.py`, the user password is required to toggle the `disablesleep` flag in power management settings
+## A quick look
 
-    > 💡 __Tip__: The emulator window can be minimized without disrupting the bot as all interactions are handled through Android Debug Bridge
+| Farms | Home village: loot to look for |
+|---|---|
+| ![Farms page](readme/farms.png) | ![Home village settings](readme/home_village.png) |
+| Every emulator instance on this PC, one switch each. | Loot minimums for your Town Hall, with a table of every Town Hall's suggested amounts. |
 
-    > 💡 __Tip__: If not using the bot for development purposes, it can be built into an executable or desktop app for convenience using [build.sh](scripts/build.sh). The desktop app GUI or command-line arguments can be used to specify the instance to run if using multiple bot instances. View a demo of the desktop app [here](#desktop-app-demo).
+| Home village: attacking | Home village: upgrades |
+|---|---|
+| ![Attack settings](readme/attacking.png) | ![Upgrade settings](readme/upgrades.png) |
+| Troops, spells, heroes and super troops. | Walls, buildings, heroes, research and the Town Hall. |
 
-    * To run bots for multiple accounts just create additional instances with your emulator's multi-instance manager (ensuring instance names match bot instance IDs), set up the instance as usual, and append new instance names to `INSTANCE_IDS` in `configs.py`. Specify the instance to run using the `--id` flag (e.g. `python src/main.py --id main`).
+| Raid Weekend | Builder base |
+|---|---|
+| ![Raid Weekend settings](readme/raid_weekend.png) | ![Builder base settings](readme/builder_base.png) |
+| Clan Capital raids, with heals and Lightning for Super Miners. | How builder battles are played. |
 
-## Miscellaneous
-* Please report issues in the [Issues Tab](https://github.com/m24842/CoC_Bot/issues)
-* For help with setup or usage, open a discussion in [Q&A](https://github.com/m24842/CoC_Bot/discussions/categories/q-a)
-* Suggest new features in [Ideas](https://github.com/m24842/CoC_Bot/discussions/categories/ideas)
+| History | When to play |
+|---|---|
+| ![History page](readme/history.png) | ![When to play page](readme/when_to_play.png) |
+| Every attack, daily totals, and a chart you can hover for exact numbers. | Playing hours, breaks, and when to stop. |
 
-## Demos
-### Latest Bot Demo
-https://github.com/user-attachments/assets/80f1bc50-332c-4c91-a392-99fc832195a3
+| Like a person | Alerts |
+|---|---|
+| ![Like a person page](readme/like_a_person.png) | ![Discord alerts](readme/alerts.png) |
+| Human habits, and the time each one adds. | Discord alerts for full storages, stops and a daily summary. |
 
-### Archived Bot Demos
-[Click here](media/README.md)
+![Setup page](readme/setup.png)
 
-### Web App Demo
-https://github.com/user-attachments/assets/3068863a-fa5a-4bef-bfb5-fb35f56ddd16
+## Tips
 
-### Desktop App Demo
-https://github.com/user-attachments/assets/a0893115-0feb-4dba-ab29-756a2f422a83
+- **Spending loot is off by default:** turn on walls and upgrades under
+  **Home village → Village** (and **Builder base → Village**), and set how much to keep.
+- **Super troops:** switch on **Activate super troops** under **Home village → Attacking**.
+  It pays 25,000 dark elixir for each, and never uses a Super Potion or gems.
+- **Builder base army:** train only Night Witches.
+- **Spells:** by default it casts only **Bat Spells**, all at once on one spot: the middle of the base,
+  or a random spot near the middle each battle. Switch to **All spells** under
+  **Home village → Attacking**.
+- **Check what the bot sees:** scout a base in the game, then press
+  **What the bot sees** under **Advanced**.
+- **Keyboard shortcuts:** F5 starts, Esc pauses, and Ctrl+1 to Ctrl+8 switch pages.
 
-## Star History
-<a href="https://www.star-history.com/?repos=m24842%2Fcoc_bot&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=m24842/coc_bot&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=m24842/coc_bot&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=m24842/coc_bot&type=date&legend=top-left" />
- </picture>
-</a>
+## Something went wrong?
+
+The Dashboard tells you what happened in plain words, with a button to fix it.
+If the game gets stuck, COCFARM restarts it by itself, and restarts the emulator if needed
+(up to three times). After three failed rounds in a row, it stops, says why, and starts
+again by itself after a wait (unless you pressed Stop or it isn't signed in).
+For more detail, check `logs/farmbot.log` and the screenshots in `screens/errors/` (`instances/<farm>/screens/errors/` for farms after the first)
+in the COCFARM folder.
+
+## Community
+
+Questions, ideas and results go in [**Discussions**](https://github.com/BilinP/COCFARM/discussions):
+
+| Category | For |
+|---|---|
+| 📣 [Announcements](https://github.com/BilinP/COCFARM/discussions/categories/announcements) | New releases and news |
+| 🙏 [Q&A](https://github.com/BilinP/COCFARM/discussions/categories/q-a) | Questions about using COCFARM |
+| 🔌 [Setup and emulators](https://github.com/BilinP/COCFARM/discussions/categories/setup-and-emulators) | Installing, connecting, the Setup page |
+| ⚔️ [Home village](https://github.com/BilinP/COCFARM/discussions/categories/home-village) | Searching, attacking, collecting, walls, donations |
+| 🛠️ [Builder base](https://github.com/BilinP/COCFARM/discussions/categories/builder-base) | Builder battles, the hero, the elixir cart |
+| 💡 [Ideas](https://github.com/BilinP/COCFARM/discussions/categories/ideas) | Feature requests (upvote the ones you want) |
+| 🙌 [Show and tell](https://github.com/BilinP/COCFARM/discussions/categories/show-and-tell) | Your loot, settings and army |
+| 💬 [General](https://github.com/BilinP/COCFARM/discussions/categories/general) | Anything else |
+
+Found a bug? [Open an issue](https://github.com/BilinP/COCFARM/issues/new/choose); the form asks for what's needed to fix it.
+
+<details>
+<summary><b>For developers</b></summary>
+
+COCFARM is written in Python. It controls the emulator over ADB, reads the
+screen with OpenCV, and has a [PySide6](https://doc.qt.io/qtforpython-6/) +
+[Fluent Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets) window.
+Every setting is listed in [`farmbot.example.toml`](farmbot.example.toml).
+
+```sh
+pip install -e .
+farmbot gui         # the window
+farmbot run         # farm without the window
+farmbot devices     # list emulator instances and their ADB ports
+farmbot inspect     # show the loot, troop cards and deploy points it sees
+farmbot pictures    # list the button pictures and which are missing
+```
+
+**Releases:** every push and pull request makes the
+[`windows-exe`](.github/workflows/windows-exe.yml) workflow build
+`COCFARM.exe` with PyInstaller and self-test it. Pushing a version tag like
+`v1.2.3` also publishes it as a GitHub release under that version.
+
+**License:** COCFARM is free software under the [GNU GPL v3 or later](LICENSE).
+The libraries it bundles (Qt, Fluent Widgets, OpenCV and others) are listed with
+their licenses in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+</details>

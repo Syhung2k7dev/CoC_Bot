@@ -1,0 +1,1223 @@
+"""Settings, loaded from a TOML file (see ``farmbot.example.toml``).
+
+All coordinates are for a screen scaled to 920 px tall (the bot does the
+scaling). In ``[x, y, w, h]`` rectangles a negative ``x``/``y`` counts from
+the right/bottom edge and a ``w``/``h`` of 0 (or less) reaches that edge,
+so the same settings fit phones and 16:9 emulators alike.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
+from pathlib import Path
+from typing import Any
+
+from farmbot.castle import PRESETS
+from farmbot.geometry import Rect
+
+SIDES = ("nw", "ne", "sw", "se")
+EMULATORS = ("bluestacks", "ldplayer", "mumu")  # device.mode values COCFARM finds, sets up and starts by itself
+
+
+@dataclass
+class DeviceConfig:
+    # "bluestacks": find BlueStacks 5 and its ADB port automatically.
+    # "ldplayer": find LDPlayer 9+ and its instance automatically.
+    # "mumu": find MuMu Player 12+ and its instance automatically.
+    # "manual": connect to ``serial`` (any emulator or phone).
+    mode: str = "bluestacks"
+    ldplayer: str = ""  # install folder or name ("LDPlayer 9"); empty = the newest found
+    ldplayer_index: int = 0  # which LDPlayer instance
+    mumu_index: int = 0  # which MuMu Player instance
+    bluestacks_instance: str = ""  # display or internal name; empty = the main instance
+    launch_emulator: bool = True  # start BlueStacks if it is not running
+    launch_timeout: float = 120.0  # seconds to wait for it to boot
+    # When ADB is off in BlueStacks, turn it on (this restarts BlueStacks once),
+    # as ClashFarmer does. Off: drive the BlueStacks window instead, which
+    # needs it in front and moves the mouse.
+    enable_adb: bool = True
+    # Turn the emulator's sound down to nothing each time the bot connects
+    # (through ADB; off: the volume is left as it is).
+    mute: bool = True
+    # The display, CPU cores, memory, frame rate and phone model aren't
+    # settings: every emulator is set to farmbot.standard when it connects.
+    serial: str = "127.0.0.1:5555"
+    adb_path: str = "adb"  # "adb" = BlueStacks' own HD-Adb.exe when available
+    package: str = "com.supercell.clashofclans"
+    # How much bigger the game draws its buttons than the pictures in
+    # templates/ (about 1.2 on a 16:9 BlueStacks window). 0 = work it out.
+    ui_scale: float = 0.0
+    # Size of game windows (battle menu, army screen) relative to the HUD.
+    # They shrink to fit narrow screens. 0 = 1 / ui_scale (right for wide screens).
+    window_scale: float = 0.0
+    # Pictures whose window is sized differently again on this screen:
+    # picture name -> size relative to the HUD, e.g. "buttons/attack" = 0.66.
+    picture_scales: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class RegionsConfig:
+    """Where the "Available Loot" numbers are while scouting."""
+
+    loot_gold: list[int] = field(default_factory=lambda: [195, 92, 150, 34])
+    loot_elixir: list[int] = field(default_factory=lambda: [195, 134, 150, 34])
+    loot_dark: list[int] = field(default_factory=lambda: [195, 175, 150, 34])
+    # Your own resources, top-right of the home village.
+    own_gold: list[int] = field(default_factory=lambda: [-320, 25, 130, 32])
+    own_elixir: list[int] = field(default_factory=lambda: [-320, 78, 130, 32])
+    own_dark: list[int] = field(default_factory=lambda: [-285, 130, 95, 32])
+
+    def rect(self, name: str) -> Rect:
+        return Rect.from_list(getattr(self, name))
+
+
+# The search minimums a new profile starts with. The first time the home
+# storages are read, minimums all still at these are set from what the
+# storages hold instead (bigger storages: a higher town hall, richer bases).
+SEARCH_DEFAULTS = {"gold": 300_000, "elixir": 300_000, "dark": 0}
+SEARCH_SHARES = {"gold": 0.025, "elixir": 0.025, "dark": 0.01}
+SEARCH_STEPS = {"gold": 50_000, "elixir": 50_000, "dark": 1_000}  # rounded to these
+
+
+# Gold and elixir a base should offer, by your Town Hall: about 1 base in 4
+# searched offering both (each Next costs gold). From the farms' own searches
+# (2026-10/11): of the bases seen, 24% offered 5,000 at Town Hall 2, 21%
+# 10,000 at TH3, ~35% 30,000 at TH4, 43% 1M and 57% 800k at TH14, 15% 900k
+# at TH18; the Town Halls between follow the curve. Dark elixir stays 0:
+# with "Any one is enough" off, a base would need it as well.
+SEARCH_BY_TOWN_HALL = {1: 1_000, 2: 5_000, 3: 10_000, 4: 30_000, 5: 60_000, 6: 100_000, 7: 150_000,
+                       8: 200_000, 9: 300_000, 10: 400_000, 11: 500_000, 12: 600_000, 13: 750_000,
+                       14: 900_000}
+# Town Hall 15 and up. Bases there offer a median 1.4M gold+elixir; replaying 194
+# scouted (4.2 s a Next) puts the most loot an hour at 1.2M-1.5M each (900k: about 13% less).
+SEARCH_TOP = 1_200_000
+MAX_TOWN_HALL = 19
+# The amounts before 1.5.3: minimums still at one of these were never typed
+# in, so they move to the new ones.
+_OLD_BY_TOWN_HALL = {1: 1_000, 2: 3_000, 3: 10_000, 4: 25_000, 5: 50_000, 6: 80_000, 7: 120_000,
+                     8: 160_000, 9: 200_000, 10: 250_000, 11: 300_000, 12: 350_000, 13: 400_000,
+                     14: 450_000, 15: 500_000}
+
+
+def town_hall_minimums(town_hall: int) -> dict[str, int]:
+    """The search minimums that suit ``town_hall``."""
+    amount = SEARCH_BY_TOWN_HALL.get(town_hall, SEARCH_TOP if town_hall > 14 else SEARCH_BY_TOWN_HALL[1])
+    return {"gold": amount, "elixir": amount, "dark": 0}
+
+
+# Small storages (a low Town Hall): a share of them is under a step, so the
+# minimum is the Town Hall amount that's at most this share of the storage
+# (a 16,000 gold storage asks 5,000, a Town Hall 2's) rather than a whole
+# step, which no base near that Town Hall offers.
+SMALL_STORAGE_SHARE = 0.35
+
+
+def _storage_minimum(kind: str, held: int) -> int:
+    step, share = SEARCH_STEPS[kind], SEARCH_SHARES[kind]
+    if kind != "dark" and held * share < step:
+        fits = [v for v in SEARCH_BY_TOWN_HALL.values() if v <= min(held * SMALL_STORAGE_SHARE, step)]
+        return max(fits, default=SEARCH_BY_TOWN_HALL[1])
+    return max(step, round(held * share / step) * step)
+
+
+def _from_storage(storage: dict[str, int]) -> dict[str, int]:
+    if not {"gold", "elixir"} <= set(storage):
+        return {}
+    return {k: _storage_minimum(k, storage[k]) for k in SEARCH_SHARES if k in storage}
+
+
+def search_minimums_for(storage: dict[str, int], current: dict[str, int],
+                        town_hall: int | None = None, by_hand: bool = False) -> dict[str, int]:
+    """The search minimums to set, if the ``current`` ones were never set by
+    hand (still the defaults, or what this set before): from the
+    ``town_hall`` when it's known, else from what the storages hold
+    (``storage``). Only those that change; none when set by hand
+    (``by_hand``: typed in the window, whatever the amounts)."""
+    if by_hand:
+        return {}
+    fitted = _from_storage(storage)
+    untouched = [SEARCH_DEFAULTS, *(town_hall_minimums(t) for t in range(1, MAX_TOWN_HALL + 1)),
+                 *({**SEARCH_DEFAULTS, "gold": v, "elixir": v} for v in _OLD_BY_TOWN_HALL.values())]
+    # (the lowest older versions set from small storages: a whole step)
+    untouched.append({**SEARCH_DEFAULTS, "gold": SEARCH_STEPS["gold"], "elixir": SEARCH_STEPS["elixir"]})
+    if fitted:
+        untouched.append({**SEARCH_DEFAULTS, **fitted})
+    if current not in untouched:
+        return {}
+    target = town_hall_minimums(town_hall) if town_hall else fitted
+    return {k: v for k, v in target.items() if current.get(k) != v}
+
+
+# More than any base offers to loot (the richest seen give about half): a
+# minimum above it is a typo (an extra zero, say), and every base is skipped.
+MOST_LOOT = {"gold": 5_000_000, "elixir": 5_000_000, "dark": 50_000}
+
+
+def unreachable_minimums(minimums: dict[str, int]) -> dict[str, int]:
+    """The minimums no base ever meets: resource -> its minimum."""
+    return {k: v for k, v in minimums.items() if k in MOST_LOOT and v > MOST_LOOT[k]}
+
+
+def unreachable_note(resource: str, minimum: int, match_any: bool) -> str:
+    """What a minimum no base meets means for the search, in words."""
+    name = "dark elixir" if resource == "dark" else resource
+    most = f"{MOST_LOOT[resource] / 1_000_000:g}M" if MOST_LOOT[resource] >= 1_000_000 \
+        else f"{MOST_LOOT[resource] // 1_000}k"
+    effect = "this one is never met" if match_any else "every base will be skipped"
+    return f"No base offers {minimum:,} {name} (under {most}): {effect}. An extra zero?"
+
+
+@dataclass
+class SearchConfig:
+    min_gold: int = SEARCH_DEFAULTS["gold"]
+    min_elixir: int = SEARCH_DEFAULTS["elixir"]
+    min_dark: int = SEARCH_DEFAULTS["dark"]
+    # Typed in by you: the three above stay as they are. Off, they're your
+    # Town Hall's (search_minimums_for), and follow it up.
+    minimums_by_hand: bool = False
+    match_any: bool = False  # accept a base if any one minimum is met
+    max_searches: int = 150
+    next_delay: float = 2.5  # seconds to wait for the next base to load
+    sound_on_match: bool = False
+    # Skip searching while your own gold is below this share of what your
+    # gold storages hold (0 = always search).
+    min_own_gold_share: float = 0.01
+    maintain_only: bool = False  # never search; just look after the village
+
+
+@dataclass
+class AttackConfig:
+    sides: list[str] = field(default_factory=lambda: ["nw", "ne", "sw", "se"])
+    waves: int = 1  # split each troop type over 1-3 waves
+    # Where troops go when farming: "spread" round the sides above, or
+    # "loot": in from the edge nearest where most loot is seen on the base
+    # (elixir by its colour, other loot buildings by pictures taught; see
+    # ``farmbot/lootspots.py``).
+    placement: str = "spread"
+    troop_speed: int = 7  # 1 (slow) - 9 (fast): pause between single taps
+    wave_speed: int = 8  # 1 (slow) - 9 (fast): pause between waves
+    # Siege machines let the Clan Castle troops out when destroyed; off leaves them in the bar.
+    use_siege: bool = False
+    # Boost the army's super troops that show Activate, with dark elixir (never a Super Potion or gems).
+    super_troops: bool = False
+    hero_abilities: bool = True
+    hero_ability_delay: float = 10.0
+    # Fire each hero's ability once its health drops to this share (0.5 =
+    # half), instead of after hero_ability_delay; 0 uses the timer. Heroes
+    # still unhurt after ability_max_wait seconds fire anyway.
+    ability_health: float = 0.0
+    ability_max_wait: float = 45.0
+    # A hero walk opens the battle: "queen" (the Archer Queen, her Healers
+    # behind her) or "champion" (the Royal Champion) goes in alone first and
+    # walks round the base, clearing what she can; the army follows her in
+    # from that side once she falls, or after walk_time s at most. Once her
+    # health drops to walk_invisibility_health an Invisibility Spell goes on
+    # her, and another each time one wears off. "off": no walk.
+    hero_walk: str = "off"
+    walk_time: float = 60.0
+    walk_invisibility_health: float = 0.95  # (18 Nov: at 0.9, she lost half her health before the first took hold)
+    # The walker's Spirit Fox, by its level ("1-4", "5-9", "10"; "off": none):
+    # it hides her 3, 3.5 or 4 s from when she goes down, then every 6 s
+    # after; the spells fill those gaps, never its turns.
+    walk_fox: str = "off"
+    # With the Rocket Spear on the Royal Champion, her ability at once as she
+    # goes in, far from the defences (it throws at them from further than they
+    # reach her); off: it waits for her last stand.
+    walk_spear_early: bool = True
+    speed_up: bool = True  # press the 1x button (it shows from the start of a battle) so it plays at 4x
+    # League bonus farming: every base is attacked (no search minimums), the
+    # whole army goes down at once round the base (heroes' abilities at
+    # once, Earthquakes anywhere), and the battle is left as soon as the
+    # Overall Damage reaches league_bonus_damage: the league's loot bonus is
+    # paid in full from there, so the rest of the battle isn't worth waiting for.
+    league_bonus: bool = False
+    league_bonus_damage: float = 0.7
+    # Earn the day's Star Bonus: while the strip above Battle still has stars to
+    # light, home battles are fought for stars (never left early over loot; see
+    # star_focus), then farming goes on as usual once all five are earned.
+    star_bonus: bool = True
+    # End the battle once the available loot has not dropped for this long.
+    end_when_no_loot: bool = True
+    no_loot_seconds: float = 15.0
+    # End once this share of the base's reported loot is taken (0 = off).
+    end_at_loot_share: float = 0.9
+    # End once what's taken fills the storages (bot.stop_when_full's, or all of
+    # them): the rest of the battle couldn't bring any more in.
+    end_when_full: bool = True
+    taps_per_batch: int = 6  # deploy taps between checks of the troop card
+    max_batches_per_card: int = 12
+    battle_timeout: float = 180.0
+    # "together": every spell in one burst on one spot (the base centre);
+    # "spread": spread over the base, spell_reach of the way from its centre
+    # towards the edge (0-1).
+    spell_placement: str = "together"
+    spell_reach: float = 0.45
+    # Which spells to cast: "bat" (Bat Spells only; needs
+    # templates/cards/bat_spell.png), "earthquake" (Bat Spells and Earthquake
+    # Spells; needs templates/cards/earthquake_spell.png too) or "all".
+    spells: str = "bat"
+    # Earthquake Spells go quakes_per_spot at a time on one spot (4 open the
+    # walls there for the troops); more than that, the rest on another spot.
+    quakes_per_spot: int = 4
+    # Where the Earthquakes go: "path", first, before the troops, on the
+    # walls on their way in (outer walls, then the core's), the army going in
+    # behind them from that one side; "spots", after the troops, on the
+    # spells' spot and others round the middle.
+    quake_aim: str = "path"
+    # With quake_aim "path": before the main army, a funnel at each end of
+    # the way in clears the buildings outside it, so the army walks straight
+    # in: "troops" (two of the first troop card at each end), "heroes" (all
+    # but the Grand Warden, who stays with the army) or "off".
+    funnel: str = "off"
+    # "together": the one spot, "middle" (the base centre) or "random" (a new
+    # spot each battle, within the middle half of the base).
+    spell_spot: str = "random"
+    # Battles fought for stars (war, ranked): "side" sends the whole army in
+    # from one side, "corner" from two neighbouring sides, "spread" round the
+    # base as when farming. Spells then follow the push: star_spell_depth of
+    # the way in from that side to the centre, star_spell_delay s after the
+    # army is down.
+    star_focus: str = "side"
+    star_spell_delay: float = 6.0
+    star_spell_depth: float = 0.4
+    # In those battles: s the Clan Castle's troops get to come out to a lure
+    # troop (only with a lure card picture and a Clan Castle picture found on
+    # the base), and s a ground army's heroes and siege lead the troops by.
+    star_lure_wait: float = 10.0
+    star_ground_lead: float = 3.0
+    # Last-resort deploy lines per side, [x1, y1, x2, y2], used when neither
+    # the red line nor the building area can be found. They were measured on
+    # a screen deploy_lines_width wide and shift with the screen's width.
+    deploy_lines_width: int = 2000
+    deploy_lines: dict[str, list[int]] = field(default_factory=lambda: {
+        "nw": [190, 380, 620, 90],
+        "ne": [1380, 90, 1800, 380],
+        "sw": [240, 560, 520, 690],
+        "se": [1480, 690, 1790, 520],
+    })
+
+    @property
+    def tap_delay(self) -> float:
+        return 0.03 + (9 - _speed(self.troop_speed)) * 0.04
+
+    @property
+    def wave_delay(self) -> float:
+        return 0.5 + (9 - _speed(self.wave_speed)) * 0.75
+
+
+def _speed(value: int) -> int:
+    return min(9, max(1, int(value)))
+
+
+@dataclass
+class BarConfig:
+    """Troop bar detection (see ``farmbot/armybar.py``)."""
+
+    band: list[int] = field(default_factory=lambda: [0, -160, 0, 110])  # card rows
+    card_width: int = 94
+    width_tolerance: float = 0.12
+    edge_contrast: int = 40
+    edge_share: float = 0.5  # share of the band's rows an edge must span
+    header_share: float = 0.2  # top part of a card holding the "xN" count
+    count_white_share: float = 0.08
+    spell_hue: list[int] = field(default_factory=lambda: [118, 150])
+    # A one-unit card on a light cyan background is a siege machine (heroes: blue to purple).
+    siege_hue: list[int] = field(default_factory=lambda: [85, 100])
+    # Card frames are blue to purple; an empty slot shows the map instead.
+    frame_hue: list[int] = field(default_factory=lambda: [85, 160])
+    min_frame_share: float = 0.3  # of a card's left or right border in frame colour
+    spent_ratio: float = 0.55  # greyed out below this share of the start colour
+    count_font: str = "fonts/count"  # digit glyphs used to read the "xN" counts
+
+
+@dataclass
+class ZoneConfig:
+    """Deploy ring around the building area (see ``farmbot/deployzone.py``)."""
+
+    enabled: bool = True
+    grass_hue: list[int] = field(default_factory=lambda: [30, 55])
+    grass_min_saturation: int = 110
+    grass_min_value: int = 160
+    open_px: int = 5
+    close_px: int = 15
+    min_patch: int = 1500
+    min_patches: int = 4
+    # Distance outside the building area, px on a screen 860 wide (scaled to
+    # the screen's width): about a tile. Too close only costs a refused tap,
+    # which shows the red line; too far, troops walk the gap.
+    offset_px: int = 14
+    step_px: int = 24  # spacing of candidate points along the ring
+    ground_window: int = 25
+    max_blocked: float = 0.35  # skip points with more non-ground around them
+    # UI to keep clear of: loot panel, resources, End Battle, boosts, Next, troop bar.
+    exclude: list[list[int]] = field(default_factory=lambda: [
+        [0, 0, 360, 260],
+        [-440, 0, 0, 180],
+        [0, -270, 330, 90],
+        [300, -260, 470, 70],
+        [-370, -310, 250, 120],
+        [0, -180, 0, 0],
+    ])
+
+
+@dataclass
+class RedLineConfig:
+    """Colour-based red-line detection (see ``farmbot/redline.py``)."""
+
+    enabled: bool = True
+    # Where the base can be: everything above the troop bar.
+    battlefield: list[int] = field(default_factory=lambda: [0, 60, 0, -190])
+    # Red UI that is not the line (End Battle button, etc.), as [x, y, w, h].
+    ignore: list[list[int]] = field(default_factory=lambda: [[0, -280, 340, 110], [-370, -310, 250, 120]])
+    # OpenCV HSV: hue 0-179. Red wraps around, hence two ranges.
+    hue_ranges: list[list[int]] = field(default_factory=lambda: [[0, 8], [172, 179]])
+    min_saturation: int = 150
+    min_value: int = 150
+    # Newer versions always draw the boundary as a faint, thin orange line
+    # along the tile grid. Thin diagonal strokes of this colour count too
+    # (an empty hue range turns this off).
+    line_hue: list[int] = field(default_factory=lambda: [4, 24])
+    line_min_saturation: int = 110
+    line_value: list[int] = field(default_factory=lambda: [60, 230])
+    line_length: int = 12  # px a stroke must run along the grid
+    line_min_stroke: int = 30  # px a joined-up stroke must span
+    join_px: int = 5  # closing kernel that merges the dots into strokes
+    min_blob: int = 8  # ignore red specks smaller than this many pixels
+    min_points: int = 40  # red pixels needed before trusting the result
+    bins_per_side: int = 24  # deploy points sampled along each edge
+    min_side_points: int = 6  # fewer than this on a side → try the next method
+    # px outside the line's outer edge, on a screen 860 wide (scaled to the
+    # screen's width): taps land just past it, not a tile out.
+    offset_px: int = 6
+    iso_ratio: float = 0.75  # base height / width on screen (isometric squash)
+    # Only red pixels between these shares of the typical line distance
+    # from the centre count as line: closer is red stuff inside the base,
+    # farther is red UI or effects outside it.
+    min_radius_ratio: float = 0.6
+    max_radius_ratio: float = 1.5
+    # A side only counts if its points form a smooth curve: the 90th
+    # percentile jump between neighbours, as a share of the typical
+    # distance, must stay below this. Scattered red buildings fail it.
+    max_jump: float = 0.2
+    # The line wraps the base, so it must span at least this share of
+    # the battlefield's width.
+    min_extent: float = 0.3
+    center: list[int] = field(default_factory=list)  # [x, y]; empty = auto
+
+
+@dataclass
+class ClanConfig:
+    """Troop requests and donations (needs the clan templates, see templates/README.md)."""
+
+    request_troops: bool = False
+    request_every_minutes: int = 10  # only when the cooldown on the button can't be read
+    # Before each request, the troops, spells and siege machine in the Clan
+    # Castle are removed (Battle → Edit Army): the request goes out again
+    # without attacking (for a clan's donated-and-received rules, or donors' XP).
+    empty_castle: bool = False
+    donate: bool = False
+    # Troops to give first, in this order (names from farmbot/units.py, e.g.
+    # "Super Barbarian"); then, with donate_fill, the space left goes to the
+    # biggest troops that still fit. Siege machines and spells: only the ones
+    # picked, in order.
+    donate_main: list[str] = field(default_factory=list)
+    donate_siege: list[str] = field(default_factory=list)
+    donate_spells: list[str] = field(default_factory=list)
+    donate_fill: bool = True
+    # With no main troops picked, a request gets its Clan Castle level's
+    # preset (see farmbot/castle.py), then the same filling.
+    donate_presets: dict[str, list[str]] = field(default_factory=lambda: {k: list(v) for k, v in PRESETS.items()})
+
+
+@dataclass
+class RankedConfig:
+    """Ranked battles: the day's ranked attacks, made before farming and
+    fought for stars (never ended early over loot)."""
+
+    enabled: bool = False
+
+
+@dataclass
+class WarConfig:
+    """Clan war attacks, made once battle day starts and fought for stars."""
+
+    enabled: bool = False
+    # Which enemy base: "mirror" (the game's recommended target, a base of about your own
+    # strength, then the nearest to it: the game doesn't show which base has your number) or
+    # "bottom" (from the bottom of the map up) or "gain" (the base where the most new stars
+    # are likely: about 1 well above the recommended target, 2 near it, 3 well below it,
+    # less the stars already taken; max_stars doesn't apply to it).
+    target: str = "mirror"
+    # Only bases with at most this many stars so far are attacked (0: ones not starred yet).
+    max_stars: int = 0
+
+
+@dataclass
+class CapitalConfig:
+    """Clan Capital raids on Raid Weekends (Friday 07:00 to Monday 07:00 UTC)."""
+
+    raid: bool = False
+    # A heal goes on the units once their health bars fall under this share.
+    miner_heal_at: float = 0.7  # Super Miners: kept going together
+    fortress_heal_at: float = 0.5  # Flying Fortresses
+    # Which open district first: "destroyed" (the most destroyed, by the map's %) or "stars" (the most stars).
+    district_order: str = "destroyed"
+    # Flying Fortresses: a heal still unused 45 s in goes on the first fortress under 85%.
+    late_heal: bool = True
+    # Flying Fortresses: s ahead of where they're heading that the heal lands (0: on them).
+    heal_lead: float = 1.0
+    # Skeleton spell on the buildings near the troops' drop (off: the most packed anywhere in view).
+    spells_near_drop: bool = True
+    # Lightning on the buildings near the troops' drop when there are any (off: the most packed anywhere).
+    lightning_near_drop: bool = False
+
+
+@dataclass
+class ClanGamesConfig:
+    """Clan Games (beta): a challenge the farm can do, then the rewards."""
+
+    enabled: bool = False
+    # The score to play up to: "4000" (the bonus reward tier: some stop
+    # there) or "10000" (the most a player can earn).
+    goal: str = "10000"
+    # With no challenge the farm can do on the board, one is started and
+    # trashed for a new one (it costs nothing but 10 minutes).
+    trade_in: bool = True
+    # After a challenge is done, one the farm can't do is traded in before
+    # the next is started (with trading in on), while the board runs low
+    # on ones it can do: it fills up with those otherwise. Each costs the
+    # 10 minutes after a trash.
+    clear_out: bool = True
+    # A challenge going that made no progress in this many of its battles
+    # (no note after them, and none on the board) is trashed for a new one
+    # (with trading in on). "0": never.
+    stuck_after: str = "3"
+    # While a challenge for stars or destroying buildings is going, home
+    # battles aren't ended early over loot (as for the Star Bonus).
+    fight_on: bool = True
+    # Once the games are over, a reward from each tier the clan unlocked:
+    # an item first, then gems, then the first one.
+    rewards: bool = True
+
+
+@dataclass
+class ScheduleConfig:
+    """When the bot may play."""
+
+    enabled: bool = False
+    active_hours: list[int] = field(default_factory=lambda: list(range(24)))  # 0-23, local time
+    # Attacks per day: each day a random number between the two (0 and 0 = no limit).
+    daily_attacks_min: int = 0
+    daily_attacks_max: int = 0
+    # Breaks, to play more like a person: after a random number of attacks
+    # (between the two "every" numbers), rest a random number of minutes.
+    breaks: bool = False
+    break_every_min: int = 15
+    break_every_max: int = 25
+    break_minutes_min: int = 5
+    break_minutes_max: int = 20
+    # A day off about one day in this many (0: never): no play that day.
+    day_off_every: int = 0
+
+
+@dataclass
+class HumanConfig:
+    """Playing like a person (see ``farmbot/human.py``): one switch for them
+    all, and one for each habit. The "Like a person" page shows what each
+    adds to a round."""
+
+    enabled: bool = True
+    tap_spread: bool = True  # taps land around their point, not on one pixel
+    tap_hold: bool = True  # each tap held down its own short while
+    waits: bool = True  # waits after a tap run a touch longer; the rest between rounds varies
+    swipes: bool = True  # swipes start a little off and vary in speed
+    curved_swipes: bool = False  # ...along a slight curve, quick in the middle (written to the touchscreen)
+    chore_order: bool = True  # the village's jobs in a different order each round
+    odd_hours: bool = True  # playing hours start and end some minutes off the hour, new each day
+    battle_rhythm: bool = True  # battle pauses, batches, sides, heroes and abilities vary
+    look_at_bases: bool = True  # a look at each base, longer at a good one, before Next
+    result_pause: bool = True  # a look at the result before Return Home
+    end_spread: bool = True  # battles end at slightly different moments
+    scout_look: bool = False  # a look around the base (a drag and back) before deploying
+    # Off until switched on: each changes what the farm does, not just its rhythm.
+    fatigue: bool = False  # waits grow the longer it has played without a break
+    offline_breaks: bool = False  # the game is closed on breaks and outside playing hours
+    uneven_days: bool = False  # each day's attack limit and break spacing scaled by its own factor
+    distracted: bool = False  # now and then a round's rest runs long
+    browse: bool = False  # now and then the clan chat, the Build list or a drag around the village
+    near_misses: bool = False  # a base just under the minimums taken, one just over passed, sometimes
+    few_sides: bool = False  # some battles go in from one or two sides
+    hold_deploy: bool = False  # big troop cards go down with a held finger
+
+    def uses(self, habit: str) -> bool:
+        return self.enabled and bool(getattr(self, habit))
+
+    def active(self) -> set[str]:
+        from farmbot.human import HABITS
+
+        return {h.key for h in HABITS if self.uses(h.key)}
+
+
+@dataclass
+class NotifyConfig:
+    """Messages to your phone through a Discord webhook (see ``farmbot/notify.py``)."""
+
+    discord_webhook: str = ""
+    on_storage_full: bool = True
+    on_stopped: bool = True  # the bot stopped: by an error, or after a run
+    on_emulator_restart: bool = True
+    daily_summary: bool = True  # yesterday's attacks and loot, sent after midnight
+    on_raids: bool = True  # Clan Capital raids made: each district's % before and after
+    progress_every: int = 0  # a progress update (attacks, loot, ...) every N attacks; 0: none
+    on_critical_error: bool = False  # a round failed and the game is restarted, or an error stops the bot
+    on_deploy_failed: bool = False  # a battle where no troop or hero would go down, after every retry
+    alert_cooldown_minutes: int = 30  # the same alert at most once in this long; repeats are counted in the next
+
+
+@dataclass
+class BotConfig:
+    # What to farm: "home" (the home village), "builder" (the builder base) or
+    # "auto" (start in auto_first; once that village's stop_when_full storages
+    # are full, farm the other one; stop when both are full).
+    mode: str = "home"
+    auto_first: str = "home"  # mode "auto": the village it starts with ("home" or "builder")
+    theme: str = "auto"  # the window's look: "auto" (follow Windows), "light" or "dark"
+    templates: str = "templates"
+    threshold: float = 0.85
+    collect_resources: bool = True
+    # Which full collectors to empty (one tap on a bubble empties every
+    # collector of that kind).
+    collect_gold: bool = True
+    collect_elixir: bool = True
+    collect_dark: bool = True
+    collect_ice: bool = True  # the ice cube's bubble (it shows in the same pale bubble)
+    collect_every: int = 7  # ...every N rounds (1 = each round); the first round after Start always collects
+    collect_loot_cart: bool = True  # loot left over from defences, shown as a cart
+    clear_gravestones: bool = True  # left by attackers' troops; tapping one clears them all
+    # Snacks and potions waiting in the box left of Build: each green "Use"
+    # one is used (farmbot/tasks/snacks.py). Off by default: they're spent.
+    use_snacks: bool = False
+    # The Clan Castle's treasury (Clan War and Star Bonus loot): off by
+    # default, since loot moved from it to the storages can be raided. Needs
+    # a picture of your own castle's badge (Advanced → Pictures).
+    collect_treasury: bool = False
+    # Once a day, the game's village export (Settings → More Settings → Data
+    # Export): the Town Hall's level and every building's, so what this
+    # account can't do yet is left out (farmbot/townhall.py).
+    read_village: bool = True
+    # Stop farming once all of these storages are full ("gold", "elixir", "dark").
+    stop_when_full: list[str] = field(default_factory=list)
+    max_attacks: int = 0  # 0 = unlimited
+    loop_delay: float = 3.0
+    history: str = "attacks.csv"  # one line per attack; "" turns it off
+    error_screens: str = "screens/errors"  # screenshot saved when a round fails; "" turns it off
+    # Where COCFARM's updates come from (GitHub "owner/name"; "" = never look).
+    update_repo: str = "BilinP/COCFARM"
+    check_updates: bool = True  # look for a newer COCFARM by itself (at most once an hour)
+
+
+@dataclass
+class WallsConfig:
+    """Spending spare gold or elixir on walls (see ``farmbot/tasks/village.py``)."""
+
+    enabled: bool = False
+    use: str = "both"  # "gold", "elixir" or "both"
+    # Keep this share of what the storages hold; walls get the rest.
+    keep_gold: float = 0.7
+    keep_elixir: float = 0.7
+    # Only spend a resource on walls once its storages are full.
+    only_when_full: bool = False
+
+
+@dataclass
+class UpgradeConfig:
+    """Upgrading buildings, heroes, research and pets once a storage is full,
+    or holds the amount set for it (see ``farmbot/tasks/upgrade.py``)."""
+
+    enabled: bool = False
+    # Start on a resource once it reaches this much, not only once its
+    # storages are full (0: once they're full).
+    start_gold: int = 0
+    start_elixir: int = 0
+    start_dark: int = 0
+    # What gets upgraded, first to last: each takes what it can of the full
+    # storages before the next. Pets: dark elixir; heroes and research: elixir
+    # or dark elixir; buildings: gold, elixir or dark elixir; walls (when
+    # walls.enabled): gold or elixir above what they keep. An older file
+    # without "walls" gets them last, as walls always were.
+    order: list[str] = field(default_factory=lambda: list(UPGRADE_ORDER))
+    pets: bool = True
+    heroes: bool = True
+    lab: bool = True
+    buildings: bool = True
+    # The kind of building that gets builders first ("none": dearest of any kind).
+    first: str = "none"
+    # Upgrade only these buildings (their names, as in
+    # ``farmbot/tasks/row_names.py``); empty: any. The Town Hall, walls and
+    # heroes have their own settings.
+    only: list[str] = field(default_factory=list)
+    # Research only this (troops, spells, siege machines; first to last); empty: any.
+    research_only: list[str] = field(default_factory=list)
+    # Hero equipment, at the Blacksmith with ore (Shiny, Glowy, Starry): no
+    # builder, done at once (``farmbot/tasks/equipment.py``). Its place in
+    # ``order`` is "equipment". Only these pieces (first to last); empty: any,
+    # those equipped first.
+    equipment: bool = False
+    equipment_only: list[str] = field(default_factory=list)
+    # Buildings not built yet ("New" in the list) are built first, and new
+    # walls (free) put down; the Town Hall is upgraded like any building
+    # (when it can't be yet, the next upgrade instead).
+    new_buildings: bool = True
+    town_hall: bool = True
+    # While the Town Hall is being upgraded, once gold and elixir are full
+    # and nothing is left to spend them on: the game is closed until it's done.
+    wait_for_town_hall: bool = True
+    # Once every builder (and the laboratory) the upgrades may use is busy,
+    # COCFARM closes, and a Windows scheduled task opens it again when the
+    # first is done (farming for the next upgrade's loot, then closing again):
+    # ``farmbot/wakeup.py``. Each round tries the upgrades with the loot held.
+    wake_up: bool = False
+    # The same rest without closing COCFARM (no scheduled task): once every
+    # builder and the laboratory the upgrades may use is busy, or nothing is
+    # left to start, attacking stops and the game is closed until the
+    # soonest upgrade under way is done, then farming carries on. Works with
+    # any emulator or a phone; needs the village data (bot.read_village).
+    pause_when_idle: bool = False
+    # An idle Builder's Apprentice is put on the upgrade under way with the most time left (each round's
+    # upgrades, after them; kept on it until it's done).
+    apprentice: bool = True
+    # The same for an idle Lab Assistant, on the research under way with the most time left.
+    lab_assistant: bool = True
+    # How many of the village's builders upgrades may keep busy (walls aside),
+    # once the village data says how many there are. 0: all but one; -1: none.
+    builders: int = 0
+
+
+WALL_RESOURCES = ("gold", "elixir", "both")
+UPGRADE_FIRST = ("defense", "resource", "army", "none")
+# "walls": where the walls take their turn (they have their own settings: walls.*, builder.walls*).
+# "equipment": hero equipment (ore, at once). An older file without it gets it last.
+UPGRADE_ORDER = ("pets", "hero", "research", "equipment", "building", "walls")
+BUILDER_UPGRADE_ORDER = ("research", "hero", "building", "walls")
+MODES = ("home", "builder", "auto")  # auto: one village until its storages are full, then the other
+THEMES = ("auto", "light", "dark")
+BUILDER_CORNERS = ("auto", "left", "top", "right")
+BUILDER_HEROES = ("any", "machine", "copter")
+SPELL_PLACEMENTS = ("together", "spread")
+TROOP_PLACEMENTS = ("spread", "loot")
+SPELL_CHOICES = ("bat", "earthquake", "all")
+SPELL_SPOTS = ("middle", "random")
+HERO_WALKS = ("off", "queen", "champion")
+WALK_FOXES = {"off": 0.0, "1-4": 3.0, "5-9": 3.5, "10": 4.0}  # the Spirit Fox's level: s it hides her each time
+QUAKE_AIMS = ("path", "spots")
+FUNNELS = ("troops", "heroes", "off")
+STAR_FOCUS = ("side", "corner", "spread")
+WAR_TARGETS = ("mirror", "bottom", "gain")
+DISTRICT_ORDERS = ("destroyed", "stars")
+
+
+@dataclass
+class BuilderConfig:
+    """Builder base battles (see ``farmbot/tasks/builder.py``)."""
+
+    corner: str = "auto"  # where the army goes in: auto = farthest from the base
+    use_hero: bool = True
+    # Swap to the other builder hero before a base when the current one's
+    # health is below this share (it carries its damage into the second base).
+    first_hero: str = "any"  # hero for the first base: "any" (keep the one set), "machine" or "copter"
+    switch_hero: bool = True
+    switch_below: float = 0.5
+    troop_delay: float = 3.0  # seconds between the hero landing and the troops
+    troop_speed: int = 5  # 1 (slow) - 9 (fast): pause between the troops going down
+    hero_ability: bool = True
+    # Fired whenever its three charge bars are full; where the bars
+    # can't be seen, once, this many seconds after the hero lands.
+    hero_ability_after: float = 15.0
+    troop_abilities: bool = True
+    ability_batch: int = 2  # troop abilities fired together
+    ability_delay: float = 5.0  # seconds between batches
+    # Once the first base falls the game brings a second: played (on), or
+    # End Battle there (off: about a minute saved; its extra stars given up).
+    second_base: bool = True
+    stage_delay: float = 2.0  # wait for the second base to settle before deploying
+    speed_up: bool = True  # press the 1x button so the battle plays at 4x
+    collect_resources: bool = True  # empty the builder base gold mines, elixir collectors and gem mine
+    # (no longer used: collecting goes by time, collect_minutes; kept so older
+    # settings files still load)
+    collect_every: int = 7
+    # ...once this many minutes have passed since the last time (0 = before
+    # each battle): looking means a trip over to the second base and back, and
+    # the collectors fill slowly, by the hour, however many battles go by.
+    collect_minutes: int = 30
+    # Empty the elixir cart (defense rewards) every N battles, N picked at
+    # random between these two each time.
+    collect_cart: bool = True
+    cart_every_min: int = 5
+    cart_every_max: int = 5
+    # Use the Clock Tower's free boost whenever its clock shows (never the
+    # magic-item Boost beside it).
+    clock_tower: bool = True
+    # Spend spare builder gold or elixir on builder base walls between battles.
+    walls: bool = False
+    walls_use: str = "both"  # "gold", "elixir" or "both"
+    # Keep this share of what the builder storages hold; walls get the rest.
+    walls_keep_gold: float = 0.2
+    walls_keep_elixir: float = 0.2
+    # Upgrade buildings, heroes and research once a builder storage is full
+    # (as the home village's upgrade.*; one builder stays for the walls).
+    upgrade: bool = False
+    # What gets upgraded, in this order (see UpgradeConfig.order); each can
+    # be turned off. Heroes: builder elixir; research: elixir; buildings: both.
+    upgrade_order: list[str] = field(default_factory=lambda: list(BUILDER_UPGRADE_ORDER))
+    upgrade_heroes: bool = True
+    upgrade_lab: bool = True
+    upgrade_buildings: bool = True
+    upgrade_first: str = "none"  # the kind of building that gets builders first
+    # How many of the builder base's builders upgrades may keep busy, once the
+    # village data says how many there are (the Master Builder, O.T.T.O). 0: all but one; -1: none.
+    upgrade_builders: int = 0
+    battle_timeout: float = 400.0  # both stages together
+    return_home_after: bool = False  # sail back to the home village when the bot stops
+    # The troop bar (bot coordinates at 860 x 672).
+    card_y: int = 830
+    hero_x: int = 68
+    first_troop_x: int = 185
+    card_step: float = 103.6
+    max_troop_cards: int = 10
+    tap_gap: float = 0.3  # seconds after each card tap (quicker taps get dropped)
+
+    @property
+    def tap_delay(self) -> float:
+        """Seconds between troops, as for the home village's troop speed."""
+        return 0.03 + (9 - _speed(self.troop_speed)) * 0.04
+
+
+RESOURCES = ("gold", "elixir", "dark")
+
+
+@dataclass
+class StorageConfig:
+    """What your storages hold (0: not known yet). The bot reads it in the
+    game, the first time it's in that village each day (kept here, so
+    starting again the same day doesn't read it again), and whenever an
+    amount is missing (cleared, say, after switching accounts); with
+    ``read`` (or ``builder_read``) off it keeps the amounts here instead."""
+
+    gold: int = 0
+    elixir: int = 0
+    dark: int = 0
+    read: bool = True
+    read_on: str = ""  # the day the home village's were last read (YYYY-MM-DD)
+    builder_gold: int = 0
+    builder_elixir: int = 0
+    builder_read: bool = True
+    builder_read_on: str = ""
+
+    def of(self, village: str) -> dict[str, int]:
+        """The known amounts of ``village`` ("home" or "builder")."""
+        if village == "builder":
+            known = {"gold": self.builder_gold, "elixir": self.builder_elixir}
+        else:
+            known = {"gold": self.gold, "elixir": self.elixir, "dark": self.dark}
+        return {k: v for k, v in known.items() if v > 0}
+
+    def set(self, village: str, maxes: dict[str, int]) -> None:
+        for kind, most in maxes.items():
+            setattr(self, f"builder_{kind}" if village == "builder" else kind, most)
+
+    def keep(self, village: str, shares: dict[str, float]) -> dict[str, int]:
+        """Each share of what that storage holds, as an amount (resources
+        whose storage size isn't known are left out)."""
+        maxes = self.of(village)
+        return {k: round(share * maxes[k]) for k, share in shares.items() if k in maxes}
+
+
+@dataclass
+class ProfilesConfig:
+    """One set of settings per Clash of Clans account (``farmbot/accounts.py``),
+    picked by the player name the village shows at the top left; an account
+    seen for the first time gets one, named after it."""
+
+    active: str = ""  # the profile in use; "" = this file's own settings (before any account was seen)
+    default: str = ""  # starred: new accounts' profiles start from its settings ("": from the ones in use)
+
+
+@dataclass
+class Config:
+    device: DeviceConfig = field(default_factory=DeviceConfig)
+    regions: RegionsConfig = field(default_factory=RegionsConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
+    attack: AttackConfig = field(default_factory=AttackConfig)
+    bar: BarConfig = field(default_factory=BarConfig)
+    zone: ZoneConfig = field(default_factory=ZoneConfig)
+    redline: RedLineConfig = field(default_factory=RedLineConfig)
+    clan: ClanConfig = field(default_factory=ClanConfig)
+    capital: CapitalConfig = field(default_factory=CapitalConfig)
+    clan_games: ClanGamesConfig = field(default_factory=ClanGamesConfig)
+    ranked: RankedConfig = field(default_factory=RankedConfig)
+    war: WarConfig = field(default_factory=WarConfig)
+    schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
+    human: HumanConfig = field(default_factory=HumanConfig)
+    notify: NotifyConfig = field(default_factory=NotifyConfig)
+    bot: BotConfig = field(default_factory=BotConfig)
+    walls: WallsConfig = field(default_factory=WallsConfig)
+    upgrade: UpgradeConfig = field(default_factory=UpgradeConfig)
+    builder: BuilderConfig = field(default_factory=BuilderConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
+    profiles: ProfilesConfig = field(default_factory=ProfilesConfig)
+
+    def validate(self) -> None:
+        bad = [s for s in self.attack.sides if s not in SIDES]
+        if bad:
+            raise ValueError(f"unknown attack side(s) {bad}; use {SIDES}")
+        if not self.attack.sides:
+            raise ValueError("attack.sides needs at least one side")
+        if self.device.mode not in EMULATORS + ("manual",):
+            raise ValueError('device.mode must be "bluestacks", "ldplayer", "mumu" or "manual"')
+        bad_kinds = [k for k in self.bot.stop_when_full if k not in RESOURCES]
+        if bad_kinds:
+            raise ValueError(f"bot.stop_when_full: unknown {bad_kinds}; use {RESOURCES}")
+        if self.bot.mode not in MODES:
+            raise ValueError(f"bot.mode must be one of {MODES}")
+        if self.bot.mode == "auto" and not self.bot.stop_when_full:
+            raise ValueError('bot.mode "auto" needs bot.stop_when_full: the storages that trigger the switch')
+        if self.bot.auto_first not in ("home", "builder"):
+            raise ValueError('bot.auto_first must be "home" or "builder"')
+        if self.bot.theme not in THEMES:
+            raise ValueError(f"bot.theme must be one of {THEMES}")
+        if self.schedule.daily_attacks_max and self.schedule.daily_attacks_min > self.schedule.daily_attacks_max:
+            raise ValueError("schedule.daily_attacks_min can't be more than schedule.daily_attacks_max")
+        if self.schedule.break_every_min > self.schedule.break_every_max:
+            raise ValueError("schedule.break_every_min can't be more than schedule.break_every_max")
+        if self.schedule.break_minutes_min > self.schedule.break_minutes_max:
+            raise ValueError("schedule.break_minutes_min can't be more than schedule.break_minutes_max")
+        if self.builder.cart_every_min > self.builder.cart_every_max:
+            raise ValueError("builder.cart_every_min can't be more than builder.cart_every_max")
+        if self.builder.walls_use not in WALL_RESOURCES:
+            raise ValueError(f"builder.walls_use must be one of {WALL_RESOURCES}")
+        if self.attack.placement not in TROOP_PLACEMENTS:
+            raise ValueError(f"attack.placement must be one of {TROOP_PLACEMENTS}")
+        if self.attack.spell_placement not in SPELL_PLACEMENTS:
+            raise ValueError(f"attack.spell_placement must be one of {SPELL_PLACEMENTS}")
+        if self.attack.spells not in SPELL_CHOICES:
+            raise ValueError(f"attack.spells must be one of {SPELL_CHOICES}")
+        if not 1 <= self.attack.quakes_per_spot <= 20:
+            raise ValueError("attack.quakes_per_spot must be from 1 to 20")
+        if self.attack.quake_aim not in QUAKE_AIMS:
+            raise ValueError(f"attack.quake_aim must be one of {QUAKE_AIMS}")
+        if self.attack.funnel not in FUNNELS:
+            raise ValueError(f"attack.funnel must be one of {FUNNELS}")
+        if self.attack.hero_walk not in HERO_WALKS:
+            raise ValueError(f"attack.hero_walk must be one of {HERO_WALKS}")
+        if not 5 <= self.attack.walk_time <= 120:
+            raise ValueError("attack.walk_time must be from 5 to 120 s")
+        if not 0.1 <= self.attack.walk_invisibility_health <= 0.95:
+            raise ValueError("attack.walk_invisibility_health must be from 0.1 to 0.95")
+        if self.attack.walk_fox not in WALK_FOXES:
+            raise ValueError(f"attack.walk_fox must be one of {tuple(WALK_FOXES)}")
+        if self.attack.spell_spot not in SPELL_SPOTS:
+            raise ValueError(f"attack.spell_spot must be one of {SPELL_SPOTS}")
+        if self.attack.star_focus not in STAR_FOCUS:
+            raise ValueError(f"attack.star_focus must be one of {STAR_FOCUS}")
+        if self.war.target not in WAR_TARGETS:
+            raise ValueError(f"war.target must be one of {WAR_TARGETS}")
+        if self.capital.district_order not in DISTRICT_ORDERS:
+            raise ValueError(f"capital.district_order must be one of {DISTRICT_ORDERS}")
+        if self.builder.first_hero not in BUILDER_HEROES:
+            raise ValueError(f"builder.first_hero must be one of {BUILDER_HEROES}")
+        if self.builder.corner not in BUILDER_CORNERS:
+            raise ValueError(f"builder.corner must be one of {BUILDER_CORNERS}")
+        if self.walls.use not in WALL_RESOURCES:
+            raise ValueError(f"walls.use must be one of {WALL_RESOURCES}")
+        if self.upgrade.first not in UPGRADE_FIRST:
+            raise ValueError(f"upgrade.first must be one of {UPGRADE_FIRST}")
+        if self.builder.upgrade_first not in UPGRADE_FIRST:
+            raise ValueError(f"builder.upgrade_first must be one of {UPGRADE_FIRST}")
+        for name, order, kinds in (("upgrade.order", self.upgrade.order, UPGRADE_ORDER),
+                                   ("builder.upgrade_order", self.builder.upgrade_order, BUILDER_UPGRADE_ORDER)):
+            if sorted(order) != sorted(kinds):
+                raise ValueError(f"{name} must list each of {kinds} once")
+        if not 1 <= self.attack.waves <= 3:
+            raise ValueError("attack.waves must be 1, 2 or 3")
+        bad_hours = [h for h in self.schedule.active_hours if not 0 <= h <= 23]
+        if bad_hours:
+            raise ValueError(f"schedule.active_hours must be 0-23, not {bad_hours}")
+        missing = [s for s in self.attack.sides if s not in self.attack.deploy_lines]
+        if missing:
+            raise ValueError(f"no deploy_lines entry for side(s) {missing}")
+
+
+# Settings that existed once and were removed (the game dropped Quick Train;
+# dead-base search is out for now; Clan Castle troops come with the siege machine): older farmbot.toml files may still have
+# them, so they're skipped quietly.
+REMOVED_SETTINGS = {"redline.reveal_tap",  # never used: inside a base, grass by buildings can take a troop
+                    # Every emulator is set to farmbot.standard: the display, cores and memory aren't choices.
+                    "device.set_display", "device.display_width", "device.display_height", "device.display_dpi",
+                    "device.set_resources", "device.cpus", "device.memory",
+                    "bot.quick_train", "bot.army_recipe", "clan.request_text", "search.dead_base",
+                    "search.dead_base_collectors", "attack.use_cc",
+                    "search.min_total", "search.dark_weight",
+                    # A request is given what fits its room (the window closes when it's full).
+                    "clan.max_donations_per_request",
+                    # Storages are judged full from what they hold (read in the game), not
+                    # the bars' colour; amounts to keep became shares of what they hold.
+                    "regions.full_gold", "regions.full_elixir", "regions.full_dark",
+                    "search.min_own_gold", "walls.min_gold", "walls.min_elixir", "builder.walls_min_gold",
+                    "builder.walls_min_elixir",
+                    # Walls: as many as the spare covers, not a set number a round.
+                    "walls.max_per_round", "builder.walls_per_round",
+                    # Profiles are always on (picked by the account in the game).
+                    "profiles.auto",
+                    # Walls are always the cheapest (taking the first one shown saved little).
+                    "walls.pick",
+                    # Recording raids was a tool for working on the raids, not a setting.
+                    "capital.record"}
+
+
+# One unit each to donate became lists: older files' choices carry over.
+DONATE_MOVED = {"clan.donate_troop": "donate_main", "clan.donate_spell": "donate_spells"}
+
+
+def _merge(obj: Any, data: dict[str, Any], path: str) -> None:
+    known = {f.name for f in fields(obj)}
+    for key, value in data.items():
+        if f"{path}{key}" == "schedule.daily_attack_limit":  # one number, from before the range
+            obj.daily_attacks_min = obj.daily_attacks_max = int(value)
+            continue
+        if f"{path}{key}" == "clan.donate_siege" and isinstance(value, str):
+            value = [value]  # one name, from before lists
+        if f"{path}{key}" in DONATE_MOVED:
+            from farmbot.units import BY_NAME, BY_SLUG
+
+            unit = BY_SLUG.get(str(value).strip().lower()) or BY_NAME.get(str(value).strip())
+            target = getattr(obj, DONATE_MOVED[f"{path}{key}"])
+            if unit and unit.name not in target:
+                target.append(unit.name)
+            continue
+        if f"{path}{key}" in REMOVED_SETTINGS:
+            continue
+        if key not in known:
+            raise ValueError(f"unknown setting {path}{key}")
+        current = getattr(obj, key)
+        if is_dataclass(current):
+            if not isinstance(value, dict):
+                raise ValueError(f"{path}{key} must be a table")
+            _merge(current, value, f"{path}{key}.")
+        else:
+            setattr(obj, key, value)
+
+
+PROFILE = Path(__file__).parent / "profiles" / "bluestacks-860x672.toml"
+
+
+def ensure_config(path: str | Path) -> bool:
+    """Give a new user a working ``farmbot.toml``: if ``path`` doesn't exist,
+    write the starting profile there (made for the display COCFARM sets
+    up). True if it was created."""
+    path = Path(path)
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(PROFILE.read_bytes())
+    return True
+
+
+def _siege_out_of_main(clan: ClanConfig) -> None:
+    """Siege machines picked among the main troops (before they had their own
+    list) move to the siege list; old slugs ("battle_blimp") become names."""
+    from farmbot.units import BY_NAME, BY_SLUG
+
+    def is_siege(name: str) -> bool:
+        return name in BY_NAME and BY_NAME[name].kind == "siege"
+
+    siege = []
+    for name in clan.donate_siege:
+        unit = BY_SLUG.get(str(name).strip().lower()) or BY_NAME.get(str(name).strip())
+        siege.append(unit.name if unit else name)
+    siege += [n for n in clan.donate_main if is_siege(n)]
+    clan.donate_main = [n for n in clan.donate_main if not is_siege(n)]
+    clan.donate_siege = list(dict.fromkeys(siege))
+
+
+# Where the starting profile read your resources before 0.6.3: too narrow
+# for a number starting with a wide digit ("20 000 000" read as
+# 10 000 000). Settings still holding them get the wider ones.
+OLD_OWN_REGIONS = {"own_gold": [-195, 25, 130, 32], "own_elixir": [-195, 78, 130, 32],
+                   "own_dark": [-160, 130, 95, 32]}
+NEW_OWN_REGIONS = {"own_gold": [-215, 25, 150, 32], "own_elixir": [-215, 78, 150, 32],
+                   "own_dark": [-180, 130, 115, 32]}
+
+
+def _widen_own_regions(regions: RegionsConfig) -> None:
+    for name, old in OLD_OWN_REGIONS.items():
+        if list(getattr(regions, name)) == old:
+            setattr(regions, name, list(NEW_OWN_REGIONS[name]))
+
+
+# Offsets that put troops a tile or more out (before 1.0.1): files still
+# holding them get the ones that sit right at the line.
+OLD_OFFSETS = {"redline": 12, "zone": 30}
+
+
+def _closer_offsets(config: Config) -> None:
+    for name, old in OLD_OFFSETS.items():
+        part = getattr(config, name)
+        if part.offset_px == old:
+            part.offset_px = type(part).offset_px
+
+
+def _count_font(bar: BarConfig) -> None:
+    """Before 0.9.7 the troop counts were read with the loot digits, which
+    misread them (x68 as 50); settings still naming them get the bar's own."""
+    if bar.count_font == "fonts/loot":
+        bar.count_font = BarConfig.count_font
+
+
+def _upgrade_orders(config: Config) -> None:
+    """Each kind once, in the order given; any missing (an older file, or a
+    hand edit) go after, in the default order. "Heroes first" became a
+    place in that order, so builders then go to any kind of building."""
+    for obj, name, kinds in ((config.upgrade, "order", UPGRADE_ORDER),
+                             (config.builder, "upgrade_order", BUILDER_UPGRADE_ORDER)):
+        given = [k for k in dict.fromkeys(getattr(obj, name)) if k in kinds]
+        setattr(obj, name, given + [k for k in kinds if k not in given])
+    for obj, name in ((config.upgrade, "first"), (config.builder, "upgrade_first")):
+        if getattr(obj, name) == "hero":
+            setattr(obj, name, "none")
+
+
+def load_config(path: str | Path | None) -> Config:
+    config = Config()
+    if path is not None:
+        # utf-8-sig: Notepad (and PowerShell) can save the file with a byte-order mark.
+        data = tomllib.loads(Path(path).read_text(encoding="utf-8-sig"))
+        # One switch for all of it, from before each habit had its own.
+        human_like = data.get("bot", {}).pop("human_like", None) if isinstance(data.get("bot"), dict) else None
+        _merge(config, data, "")
+        if isinstance(human_like, bool) and "human" not in data:
+            config.human.enabled = human_like
+    _siege_out_of_main(config.clan)
+    _upgrade_orders(config)
+    _widen_own_regions(config.regions)
+    _count_font(config.bar)
+    _closer_offsets(config)
+    config.validate()
+    return config
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    raise TypeError(f"cannot write {type(value).__name__} to TOML")
+
+
+def _toml_key(key: str) -> str:
+    return key if key and all(c.isalnum() or c in "_-" for c in key) else _toml_value(key)
+
+
+def dump_config(config: Config) -> str:
+    """The whole config as TOML; it round-trips through :func:`load_config`."""
+    lines: list[str] = []
+
+    def table(name: str, data: dict[str, Any]) -> None:
+        lines.append(f"[{name}]")
+        lines.extend(f"{_toml_key(k)} = {_toml_value(v)}" for k, v in data.items() if not isinstance(v, dict))
+        lines.append("")
+        for key, sub in data.items():
+            if isinstance(sub, dict):
+                table(f"{name}.{_toml_key(key)}", sub)
+
+    for name, data in asdict(config).items():
+        table(name, data)
+    return "\n".join(lines)
+
+
+def save_config(config: Config, path: str | Path) -> None:
+    """Write ``config`` to ``path``. An existing file is edited in place:
+    only changed values are rewritten, so its comments and layout stay."""
+    config.validate()
+    path = Path(path)
+    text = None
+    if path.is_file():
+        try:
+            text = _updated_toml(path.read_text(encoding="utf-8-sig"), load_config(path), config)
+        except (ValueError, TypeError, tomllib.TOMLDecodeError):
+            text = None  # something the simple editor can't handle: write it all out
+    # Keep the file's own line endings (Python would write CRLF on Windows).
+    ending = "\r\n" if path.is_file() and b"\r\n" in path.read_bytes() else "\n"
+    path.write_text(text if text is not None else dump_config(config), encoding="utf-8", newline=ending)
+
+
+def _leaves(data: dict[str, Any], prefix: tuple[str, ...] = ()) -> dict[tuple[str, ...], Any]:
+    out: dict[tuple[str, ...], Any] = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            out.update(_leaves(value, prefix + (key,)))
+        else:
+            out[prefix + (key,)] = value
+    return out
+
+
+def _updated_toml(text: str, saved: Config, config: Config) -> str | None:
+    """``text`` (which loads as ``saved``) edited to load as ``config``;
+    ``None`` if it can't be done line by line."""
+    before, after = _leaves(asdict(saved)), _leaves(asdict(config))
+    if set(before) - set(after):
+        return None  # an entry was removed from a table such as picture_scales
+    changes = {k: v for k, v in after.items() if before.get(k) != v}
+    lines = text.splitlines()
+    for path, value in changes.items():
+        _set_line(lines, path[:-1], path[-1], value)
+    result = "\n".join(lines) + "\n"
+    check = Config()
+    _merge(check, tomllib.loads(result), "")
+    return result if check == config else None
+
+
+def _table_of(line: str) -> tuple[str, ...] | None:
+    stripped = line.strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")) or stripped.startswith("[["):
+        return None
+    path, node = [], tomllib.loads(stripped)
+    while isinstance(node, dict) and len(node) == 1:
+        key, node = next(iter(node.items()))
+        path.append(key)
+    return tuple(path)
+
+
+def _key_of(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith(("#", "[")):
+        return None
+    parsed = tomllib.loads(stripped)  # a value spread over several lines raises: fall back
+    if len(parsed) != 1 or isinstance(next(iter(parsed.values())), dict):
+        raise ValueError("dotted keys are not edited in place")
+    return next(iter(parsed))
+
+
+def _set_line(lines: list[str], table: tuple[str, ...], key: str, value: Any) -> None:
+    entry = f"{_toml_key(key)} = {_toml_value(value)}"
+    current, start, last = None, None, None
+    for i, line in enumerate(lines):
+        header = _table_of(line)
+        if header is not None:
+            current = header
+            if header == table:
+                start = last = i
+            continue
+        if current == table and _key_of(line) is not None:
+            last = i
+            if _key_of(line) == key:
+                lines[i] = entry
+                return
+    if start is None:
+        lines.extend(["", "[" + ".".join(_toml_key(k) for k in table) + "]", entry])
+    else:
+        lines.insert(last + 1, entry)

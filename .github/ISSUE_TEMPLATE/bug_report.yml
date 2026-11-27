@@ -1,0 +1,68 @@
+name: "Bug report: Windows app"
+description: Something in COCFARM for Windows (COCFARM.exe, playing on an emulator) isn't working.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! In COCFARM, press **Advanced → Bug report → Copy for a bug report** and
+        paste it below: it has everything needed, with your personal details already taken out.
+        (Android app on your phone? Use its own bug report.)
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What went wrong?
+      description: What happened, and what did you expect instead?
+      placeholder: e.g. Troops and spells are selected but never placed; heroes are placed fine.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of COCFARM?
+      options:
+        - General (setup, connecting, the window, schedule, alerts)
+        - Home village
+        - Builder base
+        - War, ranked battles or Raid Weekend
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: COCFARM report
+      description: |
+        Advanced → Bug report → **Copy for a bug report**, then paste here (Ctrl+V), right after the
+        problem happens.
+      placeholder: COCFARM 1.9.3 report (personal details removed by COCFARM) ...
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did until the problem showed up (your settings are already in the report).
+      placeholder: |
+        1. Pressed Start
+        2. It found a base and pressed Attack!
+        3. ...
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots (optional)
+      description: |
+        Advanced → Bug report shows the game when a round failed, with names blocked out. Pick one,
+        drag a box over anything else you'd hide (a Clan Castle's clan name, say), press
+        **Copy picture**, then paste here.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: No "Copy for a bug report" button? (1.5.3 and earlier)
+      description: |
+        Say your emulator and its version, then paste the lines around the problem from
+        `logs\farmbot.log` in the COCFARM folder. Those aren't cleaned: take out your player names first.
+      render: text

@@ -1,0 +1,265 @@
+"""Plain words for the window: what the bot is doing, and what went wrong.
+
+The bot reports short status lines ("Paused: outside active hours (resumes
+17:00)") and raises errors written for developers ("could not connect to
+127.0.0.1:5555: ..."). This turns both into something a player can act on:
+a state, a headline, one line of detail, and for problems a next step.
+Kept free of Qt so it can be tested.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+# state -> (word shown in the big status, symbol: colour is never the only signal)
+STATES = {
+    "ready": ("Ready", "●"),
+    "running": ("Running", "▶"),
+    "attacking": ("Attacking", "⚔"),
+    "paused": ("Paused", "⏸"),
+    "waiting": ("Waiting", "⏳"),
+    "stopped": ("Stopped", "■"),
+    "problem": ("Problem", "⚠"),
+}
+
+
+@dataclass(frozen=True)
+class Status:
+    state: str  # a key of STATES
+    headline: str  # what it's doing, in a few words
+    detail: str = ""  # why, or what happens next
+
+    @property
+    def word(self) -> str:
+        return STATES[self.state][0]
+
+    @property
+    def symbol(self) -> str:
+        return STATES[self.state][1]
+
+
+RUNNING_LINES = {  # status line -> (headline, what comes next)
+    "Searching for a base": ("Looking for a base worth attacking", "Skips bases below your loot minimums."),
+    "Looking after the village": ("Collecting loot and looking after the village", "Next: look for a base to attack."),
+    "Upgrading walls": ("Upgrading walls with spare loot", ""),
+    "Upgrading builder base walls": ("Upgrading builder base walls with spare loot", ""),
+    "Upgrading": ("Spending a full storage on upgrades", "Walls get what's left."),
+    "Upgrading (builder base)": ("Spending a full builder storage on upgrades", "Walls get what's left."),
+    "Donating": ("Donating troops to the clan", ""),
+    "Requesting troops": ("Asking the clan for Clan Castle troops", ""),
+    "Sailing to the builder base": ("Sailing to the builder base", "Next: a builder battle."),
+    "Sailing to the home village": ("Sailing back to the home village", ""),
+    "Waiting": ("Short pause before the next round", ""),
+    "Resuming": ("Carrying on", ""),
+    "Connecting to the device…": ("Connecting to the emulator", "Opening it first if it isn't open."),
+}
+
+
+def describe_status(text: str, now: datetime | None = None) -> Status:
+    """A bot status line as a :class:`Status`."""
+    now = now or datetime.now()
+    if text.startswith("Attacking (builder base)"):
+        stage = re.search(r"base (\d)", text)
+        return Status("attacking", "Builder battle" + (f": base {stage.group(1)} of 2" if stage else ""),
+                      "Hero first, then the troops.")
+    if text.startswith("Attacking"):
+        return Status("attacking", "Attacking a base", "Deploying the army; it leaves once the loot stops coming.")
+    if m := re.match(r"Starting again in (\d+) min after a problem: (.*)", text, re.S):
+        back = now + timedelta(minutes=int(m.group(1)))
+        return Status("waiting", f"Starting again at {back:%H:%M}",
+                      f"It stopped: {m.group(2)}. The emulator is restarted then; press Stop to cancel.")
+    if text.startswith("Paused by you"):
+        return Status("paused", "Paused by you", "Press Resume to carry on, or Stop now to end.")
+    if text.startswith("Pausing"):
+        return Status("paused", "Pausing after this step", "It finishes what it's doing first. Stop now ends at once.")
+    if text.startswith("Switching off"):
+        return Status("paused", "Switching off after this step", "It finishes what it's doing first, "
+                      "never stopping in the middle of a battle.")
+    if text.startswith("Stopping"):
+        return Status("paused", "Stopping now", "")
+    if m := re.match(r"Paused: outside active hours(?: \(resumes (\d\d:\d\d)\))?", text):
+        until = m.group(1)
+        return Status("waiting", f"Waiting until {until}" if until else "Outside your playing hours",
+                      "Outside the hours you picked on When to play.")
+    if m := re.match(r"Paused: daily limit of (\d+) attacks reached", text):
+        return Status("waiting", "Waiting until midnight",
+                      f"Today's limit of {m.group(1)} attacks is reached (When to play).")
+    if m := re.match(r"Taking a break: (\d+) min", text):
+        back = now + timedelta(minutes=int(m.group(1)))
+        return Status("waiting", f"On a break until {back:%H:%M}", "Resting now and then, like a person would.")
+    if m := re.match(r"Saving up: ([\d,]+) gold is below ([\d,]+)", text):
+        return Status("waiting", "Saving up gold",
+                      f"You have {m.group(1)} gold, below your {m.group(2)} limit for searching. "
+                      "It keeps collecting and looks again soon.")
+    if m := re.match(r"Storage full: switching to the (builder base|home village)", text):
+        other = "home village" if m.group(1) == "builder base" else "builder base"
+        return Status("running", f"Storage full: on to the {m.group(1)}",
+                      f"The {other} storages you picked are full, so it plays the {m.group(1)} now.")
+    if text.startswith("Stopped: storage full in both villages"):
+        return Status("stopped", "Storage full in both villages", "Both villages' storages you picked are full, "
+                      "so it stopped. Spend some loot, then press Start.")
+    if m := re.match(r"Stopped: storage full \((.+)\)", text):
+        return Status("stopped", "Storage full", f"Your {m.group(1)} storage is full, so it stopped. "
+                      "Spend some loot, then press Start.")
+    if m := re.match(r"Stopped: all (\d+) attacks played", text):
+        return Status("stopped", f"All {m.group(1)} attacks played", "It played the attacks it was asked for, "
+                      "then stopped. Press Start for more.")
+    if text in ("Stopped", "Stopped. Press Start to go again."):
+        return Status("stopped", "Stopped", "Press Start to go again.")
+    if m := re.match(r"Attack (\d+) done", text):
+        return Status("running", f"Attack {m.group(1)} done", "Getting ready for the next one.")
+    if text.startswith("Restarting the emulator"):
+        return Status("running", "Restarting the emulator", "The game kept failing, so it's starting it fresh.")
+    if text.startswith("Starting"):
+        return Status("running", "Starting", "Connecting to the emulator and opening the game.")
+    headline, detail = RUNNING_LINES.get(text, (text, ""))
+    return Status("running", headline, detail)
+
+
+@dataclass(frozen=True)
+class Problem:
+    title: str  # what happened
+    why: str  # why it matters
+    action: str  # what the fix button does: setup (emulator settings) | retry | autostart | pictures | logs
+    action_text: str  # the button's label
+    details: str  # the original message, for "Technical details"
+
+
+# (pattern, title, why, action, button). {emulator} becomes the emulator's name.
+RULES = [
+    (r"is already playing the account",
+     "Another farm plays this account",
+     "Two farms on one Clash account log each other out (\"Another device is connecting\"), so this farm closed "
+     "the game and stopped, leaving the account to the other. Sign this emulator's game in to another account, "
+     "or farm the account from one farm only.", "retry", "Try again"),
+    (r"reached BlueStacks instead",
+     "BlueStacks is in LDPlayer's way",
+     "Both emulators use the same connection (port 5555), so with BlueStacks open COCFARM reaches it instead of "
+     "LDPlayer. Close BlueStacks, or pick BlueStacks in Advanced → Emulator.", "setup", "Emulator settings"),
+    (r"is using port|still holds port",
+     "Another program is using {emulator}'s connection",
+     "COCFARM closes other emulators in the way by itself, but couldn't close this one. Close it, then try again.",
+     "retry", "Try again"),
+    (r"instance .* not found|has no instance",
+     "The emulator instance picked doesn't exist",
+     "COCFARM doesn't know which emulator window to play in.", "setup", "Emulator settings"),
+    (r"isn't installed on this emulator instance",
+     "Clash of Clans isn't on this emulator instance",
+     "This farm's instance has no game to play, so it stopped. Install Clash of Clans in it and sign in "
+     "(or make the farm from an instance that has the game), or switch this farm off on the Farms page.",
+     "retry", "Try again"),
+    (r"(BlueStacks|LDPlayer|MuMu)[^.]* (was )?not found|not installed",
+     "COCFARM can't find {emulator}",
+     "The game runs inside the emulator, so nothing can be played. Install it, or pick the other one.",
+     "setup", "Emulator settings"),
+    (r"isn't in English",
+     "Clash of Clans isn't in English",
+     "COCFARM finds the game's buttons by their English words, so it doesn't recognise anything. Open the "
+     "game, tap the gear (Settings), pick Language -> English, then press Start.", "retry", "Try again"),
+    (r"rounds in a row failed",
+     "The bot kept getting stuck",
+     "Three rounds in a row failed, though COCFARM closed the game and opened it again after each, so the bot "
+     "stopped. The last screens it saw are in the screens\\errors folder.", "retry", "Try again"),
+    (r"started \d+ times",
+     "{emulator} stopped answering",
+     "COCFARM closed it and started it again three times, but it still didn't answer, so the bot stopped. "
+     "Restart your PC, or open the emulator yourself and check the game loads, then press Start.",
+     "retry", "Try again"),
+    (r"hung while starting|isn't running \d+s after it was started",
+     "{emulator} didn't finish starting",
+     "It got stuck while starting up. Close the emulator (or restart your PC if it won't close), then try again.",
+     "retry", "Try again"),
+    (r"is not running|no BlueStacks window called",
+     "{emulator} isn't open",
+     "The bot plays the game inside it.", "autostart", "Open it automatically"),
+    (r"ldconsole failed|MuMuManager",
+     "{emulator} didn't respond to COCFARM",
+     "COCFARM controls the emulator with the emulator's own tool, and that tool failed. Restart the emulator, "
+     "then try again.", "retry", "Try again"),
+    (r"adb not found",
+     "A part COCFARM needs to talk to the emulator is missing",
+     "Without it the bot can't control the game.", "setup", "Emulator settings"),
+    (r"timed out",
+     "{emulator} took too long to answer",
+     "It may be restarting after COCFARM set it up, or your PC is busy. Wait a moment, then try again.",
+     "retry", "Try again"),
+    (r"did not open",
+     "{emulator} took too long to open",
+     "Your PC may be busy. It usually works on a second try.", "retry", "Try again"),
+    (r"did not close|didn't close",
+     "{emulator} didn't close",
+     "COCFARM closes it to start it again, but it stayed open. Close it yourself, then try again.",
+     "retry", "Try again"),
+    (r"did not accept|did not answer|could not connect|offline|refused|adb failed|no devices",
+     "Can't connect to {emulator}",
+     "COCFARM controls the game through the emulator. Make sure it's open and the game has loaded.",
+     "retry", "Try again"),
+    (r"screencap|could not capture|pixels|has no size|minimised",
+     "Can't see the emulator's screen",
+     "The bot needs to see the game. Make sure the emulator window isn't minimised.", "retry", "Try again"),
+    (r"isn't logged in",
+     "Clash of Clans isn't logged in",
+     "The game is on its login screen, so there's no village to play. Log in to your account in the emulator, "
+     "then press Start.", "retry", "Try again"),
+    (r"maintenance break",
+     "Clash of Clans is on a maintenance break",
+     "Supercell is updating the game, so nothing can be played for now (usually under an hour). The bot "
+     "stopped; press Start once the game is back.", "retry", "Try again"),
+    (r"in front instead of the game",
+     "Clash of Clans closed",
+     "The game crashed or was closed, so the bot stopped tapping. It opens the game again when you try again.",
+     "retry", "Try again"),
+    (r"lockout screen",
+     "The game won't start a new battle yet",
+     "A battle that was left early is still running, so attacking is locked for a few minutes. Try again "
+     "once the Battle button no longer shows a countdown.", "retry", "Try again"),
+    (r"no base matched after",
+     "No base had enough loot",
+     "It searched as many bases as it's allowed without finding one above your loot minimums. Lower the "
+     "minimums on the Home village page, then try again.", "retry", "Try again"),
+    (r"no cards found in the troop bar",
+     "No army to attack with",
+     "The troop bar was empty when the battle started. Train an army in the game, then try again.",
+     "retry", "Try again"),
+    (r"no deploy points",
+     "COCFARM couldn't find where to drop troops",
+     "It couldn't see the base's edges. Make sure the game isn't zoomed in and nothing covers the base, then try "
+     "again.", "retry", "Try again"),
+    (r"after the Raid Weekend began",
+     "This account can't raid this weekend",
+     "It joined its clan after this Raid Weekend began, so the game won't let it raid until the next one.",
+     "retry", "Try again"),
+    (r"couldn't get back to a village",
+     "The game is stuck on a screen COCFARM doesn't recognise",
+     "It needs the village showing to carry on. Close whatever is open in the game, then try again.",
+     "retry", "Try again"),
+    (r"battle button|find-a-match|next button|next tap|search screen|could not read available loot|"
+     r"result screen not detected|boat to the builder base|builder base didn't load|Find Now|no opponent found|"
+     r"builder battle result|sail back",
+     "COCFARM lost its way in the game",
+     "Usually a popup or an update screen is in the way. Check the game, then try again.", "retry", "Try again"),
+    (r"pictures? missing|no template named|cannot read template",
+     "A button picture is missing",
+     "The bot finds buttons by their pictures; without this one it can't go on.", "pictures", "Open Pictures"),
+]
+
+
+PLAIN_STARTS = ("The ", "A ", "An ", "No ", "Another ", "Can't ", "Something ", "This ")  # not a name
+
+
+def in_sentence(title: str) -> str:
+    """A problem's title inside a sentence: "The game …" → "the game …",
+    while a name ("BlueStacks …", "Clash of Clans …") keeps its capital."""
+    return title[0].lower() + title[1:] if title.startswith(PLAIN_STARTS) else title
+
+
+def explain(message: str, emulator: str = "the emulator") -> Problem:
+    """What went wrong, in plain words, with a next step."""
+    for pattern, title, why, action, button in RULES:
+        if re.search(pattern, message, re.IGNORECASE):
+            return Problem(title.format(emulator=emulator), why, action, button, message)
+    return Problem("Something went wrong", "The bot stopped so it doesn't do anything unexpected. "
+                   "The technical details below can help if it keeps happening.", "logs", "Open the log folder",
+                   message)

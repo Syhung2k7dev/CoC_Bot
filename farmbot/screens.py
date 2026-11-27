@@ -1,0 +1,187 @@
+"""Which screen the game is showing, and getting back to a village from
+whatever it is.
+
+Each round starts by asking where the game is instead of assuming, so a
+chest room, a reward picker, a results screen or the builder base at
+startup are dealt with in one place.
+"""
+
+from __future__ import annotations
+
+import enum
+import logging
+
+from farmbot import wordbuttons
+from farmbot.game import Game, T
+
+log = logging.getLogger(__name__)
+
+
+class Screen(enum.Enum):
+    HOME = "home village"
+    BUILDER = "builder base"
+    BATTLE = "battle"  # scouting or fighting (home or builder)
+    RESULTS = "battle results"
+    CHEST = "event chest room"
+    REWARD = "reward picker"
+    POPUP = "popup"
+    CAPITAL = "clan capital"  # the capital or its raid map (left open, or the game reopened there)
+    WAR = "clan war"  # the war map (left open, or where a war battle's result leads)
+    LOGIN = "login screen"  # no account logged in: the bot can't play
+    MAINTENANCE = "maintenance break"  # Supercell's: nothing can be played until it's over
+    UNKNOWN = "unknown screen"  # loading, an animation, or something new
+
+
+VILLAGES = (Screen.HOME, Screen.BUILDER)
+
+# Buttons that only show on a window over the village (tried in this order
+# when clearing them). Continue sits under a chest's reward.
+POPUP_BUTTONS = (T.TRY_AGAIN, T.RELOAD, T.BB_OKAY, T.CONTINUE, T.STAR_BONUS_CLAIM, T.OKAY, T.CLOSE, T.REMOVE_ADS)
+
+
+# The Clan Capital's ways home: its Return Home, the raid map's airship Map,
+# and Map under a raid's result.
+CAPITAL_EXITS = (T.CAPITAL_RETURN_HOME, T.CAPITAL_LEAVE_RAID, T.CAPITAL_RESULT_MAP)
+
+# What covers a village, looked for first: anything over the village wins.
+COVERS = (T.MAINTENANCE, T.RATE_TITLE, T.PICK_REWARD, T.EVENT_CHEST, T.CHEST_SKIP, T.CHEST_TAP, T.RETURN_HOME,
+          T.BB_RETURN_HOME, T.END_BATTLE, T.BB_BATTLE_STARTS, T.BB_BATTLE_ENDS)
+
+
+def _seen(game: Game, name: str) -> bool:
+    return game.has(name) and game.find(name) is not None
+
+
+def identify(game: Game, refresh: bool = True) -> Screen:
+    """Name the screen on show. The order matters: the reward picker
+    covers a battle, popups cover a village, and the home village's
+    Battle button also matches the builder base's."""
+    screen = _identify(game, refresh)
+    try:
+        game.last_seen = screen  # (said in a failed round's log line)
+    except AttributeError:  # (a stand-in game that takes no new attributes)
+        pass
+    return screen
+
+
+def _identify(game: Game, refresh: bool) -> Screen:
+    from farmbot.tasks import builder, village  # tasks import this module's callers
+
+    if refresh:
+        game.refresh()
+    # Every picture of a step looked for at once (the same answers, sooner).
+    game.prefetch([(name, None) for name in COVERS])
+    if _seen(game, T.MAINTENANCE):  # over everything
+        return Screen.MAINTENANCE
+    if _seen(game, T.RATE_TITLE):  # Google Play's, over the game
+        return Screen.POPUP
+    if _seen(game, T.PICK_REWARD):
+        return Screen.REWARD
+    if village.in_chest_room(game):  # (its window picture, or its Skip: the same in every room)
+        return Screen.CHEST
+    if _seen(game, T.RETURN_HOME) or _seen(game, T.BB_RETURN_HOME):
+        return Screen.RESULTS
+    if any(_seen(game, name) for name in (T.END_BATTLE, T.BB_BATTLE_STARTS, T.BB_BATTLE_ENDS)):
+        return Screen.BATTLE
+    game.prefetch([(name, None) for name in (*POPUP_BUTTONS, T.BATTLE, T.LOGIN, *CAPITAL_EXITS, T.WAR_RETURN_HOME, T.WAR_TO_ENEMY, T.WAR_TO_HOME)]
+                  + [(T.BB_BATTLE, game.region(builder.BATTLE_AREA))])
+    if any(_seen(game, name) for name in POPUP_BUTTONS):
+        return Screen.POPUP
+    if builder.in_builder_base(game, refresh=False):
+        return Screen.BUILDER
+    if _seen(game, T.BATTLE):
+        return Screen.HOME
+    if _seen(game, T.LOGIN):
+        return Screen.LOGIN
+    if _seen(game, T.WAR_RETURN_HOME) and (_seen(game, T.WAR_TO_ENEMY) or _seen(game, T.WAR_TO_HOME)):
+        return Screen.WAR  # (before the capital: its Return Home looks the same)
+    if any(_seen(game, name) for name in CAPITAL_EXITS):
+        return Screen.CAPITAL
+    return Screen.UNKNOWN
+
+
+class StuckError(RuntimeError):
+    """The game stayed on a screen the bot can't get past."""
+
+
+class NotLoggedIn(RuntimeError):
+    """The game is on its login screen: no account, so nothing to play.
+    Restarting the game won't help, so the bot stops."""
+
+    def __init__(self) -> None:
+        super().__init__("Clash of Clans isn't logged in (it shows \"Log in with Supercell ID\")")
+
+
+class MaintenanceBreak(RuntimeError):
+    """The game is on its maintenance break: nothing can be played until
+    Supercell ends it, so the bot stops."""
+
+    def __init__(self) -> None:
+        super().__init__("Clash of Clans is on a maintenance break")
+
+
+SETTLE_STEPS = 10
+UNKNOWN_WAIT = 3.0  # seconds: loading screens and animations pass by themselves
+UNKNOWN_BEFORE_WORDS = 2  # unknown looks in a row before its words are read (see wordbuttons)
+
+
+def settle(game: Game, steps: int | None = None) -> Screen:
+    """Deal with whatever is on screen until a village shows: pick the
+    reward, open the chest, leave the results or the battle, close popups,
+    wait out loading. Returns the village; raises StuckError if it never
+    gets there (the caller saves the screen and, after a few, restarts)."""
+    from farmbot.tasks import village
+
+    seen = []
+    for _ in range(steps or SETTLE_STEPS):
+        screen = identify(game)
+        if screen in VILLAGES:
+            if seen:
+                log.info("Back in the %s (after: %s)", screen.value, ", ".join(s.value for s in seen))
+            return screen
+        if screen is Screen.LOGIN:
+            raise NotLoggedIn()
+        if screen is Screen.MAINTENANCE:
+            raise MaintenanceBreak()
+        seen.append(screen)
+        if screen is Screen.REWARD:
+            village.pick_reward(game)
+        elif screen is Screen.CHEST:
+            if not village.open_event_chests(game):
+                game.wait(UNKNOWN_WAIT)
+        elif screen is Screen.RESULTS:
+            if not (game.click(T.RETURN_HOME) or game.click(T.BB_RETURN_HOME)):
+                game.wait(1)
+            game.wait(3)
+        elif screen is Screen.BATTLE:
+            if not village.leave_battle(game):
+                game.wait(UNKNOWN_WAIT)  # a builder battle without End Battle: let it play out
+        elif screen is Screen.POPUP:
+            village.clear_popups(game, rounds=1)
+        elif screen is Screen.CAPITAL:
+            from farmbot.tasks import capital
+
+            log.info("In the Clan Capital: going home")
+            capital._go_home(game)
+        elif screen is Screen.WAR:
+            log.info("On the war map: going home")
+            game.click(T.WAR_RETURN_HOME)
+            game.wait(3)
+        elif _seen(game, T.FIND_MATCH) and getattr(game.device, "back", None):
+            # The battle menu, left open by a round that failed: Back closes it.
+            log.info("Closing the battle menu")
+            game.device.back()
+            game.screen = None
+            game.wait(1.5)
+        elif seen[-UNKNOWN_BEFORE_WORDS:] == [Screen.UNKNOWN] * UNKNOWN_BEFORE_WORDS and wordbuttons.tap_safe_word(game):
+            # Still unknown after a wait (not a loading screen): something new from an update,
+            # got past by its button's words ("Skip", "Continue", "Close", ...).
+            game.wait(1.5)
+        else:
+            game.wait(UNKNOWN_WAIT)
+    hint = ""
+    if all(s is Screen.UNKNOWN for s in seen):  # nothing recognised at all: maybe not the game's English
+        from farmbot import language
+
+        hint = language.stuck_hint(game.device)
+    raise StuckError(f"couldn't get back to a village (saw: {', '.join(s.value for s in seen[-4:])}){hint}")
